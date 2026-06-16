@@ -1,0 +1,115 @@
+*{
+    margin:0;
+    padding:0;
+    box-sizing:border-box;
+    font-family:'Segoe UI', sans-serif;
+}
+
+body{
+    background:#f3f4f6;
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    padding:20px;
+}
+
+.container{
+    width:100%;
+    max-width:1200px;
+    text-align:center;
+}
+
+.logo{
+    width:55px;
+    height:55px;
+    background:#0e7490;
+    color:white;
+    margin:0 auto 15px;
+    border-radius:8px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    font-size:25px;
+}
+
+h1{
+    color:#111827;
+    font-size:40px;
+    margin-bottom:10px;
+}
+
+.subtitle{
+    color:#6b7280;
+    margin-bottom:40px;
+    font-size:16px;
+}
+
+.card-container{
+    display:grid;
+    grid-template-columns:repeat(2,1fr);
+    gap:20px;
+}
+
+.card{
+    background:white;
+    border:1px solid #e5e7eb;
+    border-radius:10px;
+    padding:25px;
+    text-decoration:none;
+    text-align:left;
+    transition:0.3s;
+}
+
+.card:hover{
+    transform:translateY(-5px);
+    box-shadow:0 10px 25px rgba(0,0,0,0.1);
+}
+
+.icon{
+    width:42px;
+    height:42px;
+    border-radius:8px;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    color:white;
+    font-size:18px;
+    margin-bottom:15px;
+}
+
+.patient{
+    background:#0891b2;
+}
+
+.doctor{
+    background:#22c55e;
+}
+
+.insurance{
+    background:#f59e0b;
+}
+
+.staff{
+    background:#8b5cf6;
+}
+
+.card h3{
+    color:#111827;
+    margin-bottom:10px;
+}
+
+.card p{
+    color:#6b7280;
+    font-size:14px;
+}
+
+@media(max-width:768px){
+    .card-container{
+        grid-template-columns:1fr;
+    }
+
+    h1{
+        font-size:30px;
+    }
+}
