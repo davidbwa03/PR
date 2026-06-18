@@ -1,392 +1,404 @@
 <?php
+// Start secure session state
 session_start();
 
-// Strict Gatekeeper Check: Kick out anyone who hasn't verified via 2FA
-if (!isset($_SESSION['2fa_verified']) || $_SESSION['2fa_verified'] !== true) {
+// Enforce Patient Role-Based Access Control (RBAC)
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Patient') {
     header("Location: login.php");
     exit();
 }
 
-// Safely pull details from active session memory
-$patient_email = $_SESSION['patient'];
-$patient_name = $_SESSION['patient_name'] ?? 'John Davis';
-$patient_id = "PT-2024-5619"; // Static placeholder matching your exact mockup image 2.png
+// Include your local database connection parameters
+require_once 'db.php'; 
+
+try {
+    // Capture the verified user's ID from the session state
+    $patient_id = $_SESSION['user_id']; 
+
+    // --- HARMONIZED ANALYTICS QUERIES (Matching healthcare_middleware.sql precisely) ---
+    
+    // 1. Count of successfully accepted/verified practitioners
+    $stmt_docs = $pdo->prepare("SELECT COUNT(DISTINCT practitioner_id) AS total_doctors FROM practitioner_consents WHERE patient_id = :patient_id AND status = 'Accepted'");
+    $stmt_docs->execute(['patient_id' => $patient_id]);
+    $doctors_count = $stmt_docs->fetch()['total_doctors'];
+
+    // 2. Count of integrated health records recorded on the middleware platform
+    $stmt_records = $pdo->prepare("SELECT COUNT(*) AS total_records FROM medical_records WHERE patient_id = :patient_id");
+    $stmt_records->execute(['patient_id' => $patient_id]);
+    $records_count = $stmt_records->fetch()['total_records'];
+
+    // 3. Count of distinct medications recommended/prescribed
+    $stmt_meds = $pdo->prepare("SELECT COUNT(*) AS total_medications FROM medication_prescriptions WHERE patient_id = :patient_id");
+    $stmt_meds->execute(['patient_id' => $patient_id]);
+    $medications_count = $stmt_meds->fetch()['total_medications'];
+
+    // 4. Fetch the 2 most recent prescriptions for the lower-left display panel
+    $stmt_med_list = $pdo->prepare("SELECT medication_name, dosage, frequency, prescribed_by FROM medication_prescriptions WHERE patient_id = :patient_id ORDER BY id DESC LIMIT 2");
+    $stmt_med_list->execute(['patient_id' => $patient_id]);
+    $medications = $stmt_med_list->fetchAll();
+
+    // 5. Fetch the 5 most recent clinical interactions for the main history table view
+    $stmt_audit = $pdo->prepare("SELECT visit_type, hospital_name, visit_date FROM medical_records WHERE patient_id = :patient_id ORDER BY visit_date DESC LIMIT 5");
+    $stmt_audit->execute(['patient_id' => $patient_id]);
+    $recent_records = $stmt_audit->fetchAll();
+
+} catch (PDOException $e) {
+    // Graceful fallback to hide raw MySQL database system logs from leaking to user views
+    $error_msg = "An error occurred retrieving your SHIF integration analytics.";
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Patient Portal | Healthcare Middleware</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+    <title>Patient Portal | Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
         :root {
-            --bg-body: #f8fafc;
-            --sidebar-bg: #ffffff;
-            --card-bg: #ffffff;
-            --primary-blue: #007A9B;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border-light: #e2e8f0;
-            --green-toggle: #22c55e;
+            --sidebar-width: 260px;
+            --bg-light: #f8fafc;
+            --shif-teal: #0e7490;
+            --shif-teal-hover: #0891b2;
+            --text-dark: #1e293b;
         }
 
-        * {
-            box-sizing: border-box;
-            font-family: system-ui, -apple-system, sans-serif;
+        body {
+            background-color: var(--bg-light);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-dark);
+            overflow-x: hidden;
         }
 
-        body, html {
-            margin: 0;
-            padding: 0;
-            background-color: var(--bg-body);
-            color: var(--text-main);
-            min-height: 100vh;
-        }
-
-        .dashboard-container {
-            display: flex;
-            min-height: 100vh;
-        }
-
-        /* --- SIDEBAR NAV PANEL --- */
+        /* Fixed Sidebar Layout styling */
         .sidebar {
-            width: 260px;
-            background-color: var(--sidebar-bg);
-            border-right: 1px solid var(--border-light);
+            width: var(--sidebar-width);
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            background-color: #ffffff;
+            border-right: 1px solid #e2e8f0;
+            padding: 24px;
             display: flex;
             flex-direction: column;
-            padding: 24px 16px;
-            position: fixed;
-            height: 100vh;
+            z-index: 100;
         }
 
-        .brand-header {
+        .sidebar-brand {
             display: flex;
             align-items: center;
             gap: 12px;
-            margin-bottom: 35px;
-            padding-left: 8px;
+            margin-bottom: 32px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #f1f5f9;
         }
 
-        .avatar-box {
-            background-color: #e0f2fe;
-            color: #0284c7;
+        .sidebar-brand .icon-box {
+            background-color: var(--shif-teal);
+            color: white;
             width: 40px;
             height: 40px;
             border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 18px;
+            font-size: 1.2rem;
         }
 
-        .brand-text h3 {
-            margin: 0;
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .brand-text span {
-            font-size: 12px;
-            color: var(--text-muted);
-        }
-
-        .nav-menu {
+        .sidebar-menu {
             display: flex;
             flex-direction: column;
             gap: 8px;
             flex-grow: 1;
         }
 
-        .nav-item {
+        .menu-btn {
             display: flex;
             align-items: center;
             gap: 12px;
+            width: 100%;
             padding: 12px 16px;
-            text-decoration: none;
-            color: var(--text-main);
-            font-weight: 500;
-            font-size: 14px;
+            background-color: var(--shif-teal);
+            color: white;
+            border: none;
             border-radius: 8px;
+            font-weight: 500;
+            text-align: left;
+            text-decoration: none;
             transition: all 0.2s ease;
         }
 
-        .nav-item:hover {
+        .menu-btn.secondary {
+            background-color: transparent;
+            color: #64748b;
+        }
+
+        .menu-btn:hover {
+            background-color: var(--shif-teal-hover);
+            color: white;
+        }
+
+        .menu-btn.secondary:hover {
             background-color: #f1f5f9;
+            color: var(--text-dark);
         }
 
-        .nav-item.active {
-            background-color: var(--primary-blue);
-            color: #ffffff;
-        }
-
-        .logout-link {
+        .logout-btn {
+            margin-top: auto;
+            color: #64748b;
+            text-decoration: none;
             display: flex;
             align-items: center;
             gap: 12px;
             padding: 12px 16px;
-            text-decoration: none;
-            color: var(--text-muted);
-            font-weight: 500;
-            font-size: 14px;
             border-radius: 8px;
-            margin-top: auto;
-            transition: color 0.2s;
+            transition: background 0.2s;
         }
 
-        .logout-link:hover {
+        .logout-btn:hover {
+            background-color: #fef2f2;
             color: #ef4444;
         }
 
-        /* --- MAIN WORKSPACE --- */
+        /* Main View Window Frame Layout */
         .main-content {
-            flex-grow: 1;
-            margin-left: 260px; /* Offset width of the fixed sidebar */
+            margin-left: var(--sidebar-width);
             padding: 40px;
-            max-width: 1200px;
+            min-height: 100vh;
         }
 
-        .welcome-header {
-            margin-bottom: 30px;
-        }
-
-        .welcome-header h1 {
-            margin: 0 0 6px 0;
-            font-size: 28px;
-            font-weight: 700;
-        }
-
-        .patient-tag {
-            margin: 0;
-            font-size: 14px;
-            color: var(--text-muted);
-        }
-
-        /* --- COMPONENT CARDS --- */
-        .card {
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-light);
-            border-radius: 12px;
-            padding: 24px;
-            margin-bottom: 24px;
+        /* Dashboard Interface Structural Components */
+        .card-custom {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            margin-bottom: 24px;
         }
 
-        .card-header-title {
-            font-size: 18px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 6px;
-        }
-
-        .card-subtitle {
-            margin: 0 0 24px 0;
-            color: var(--text-muted);
-            font-size: 14px;
-        }
-
-        /* --- PRIVACY GRID & SLIDERS (2.png) --- */
-        .privacy-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 16px;
-        }
-
-        .privacy-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background-color: #fafafa;
-            border: 1px solid var(--border-light);
+        .control-row {
+            background-color: #ffffff;
+            border: 1px solid #f1f5f9;
+            border-radius: 12px;
             padding: 14px 20px;
-            border-radius: 10px;
-        }
-
-        .privacy-label {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-weight: 500;
-            font-size: 14px;
+            justify-content: space-between;
+            margin-bottom: 12px;
         }
 
-        .icon-visible { color: var(--green-toggle); }
-        .icon-hidden { color: #94a3b8; }
-
-        /* Custom Switch CSS Toggle */
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 46px;
-            height: 24px;
+        /* Switch Styling Integration */
+        .form-check-input:checked {
+            background-color: #22c55e;
+            border-color: #22c55e;
         }
 
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background-color: #cbd5e1;
-            transition: .2s;
-            border-radius: 34px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 18px;
-            width: 18px;
-            left: 3px;
-            bottom: 3px;
-            background-color: white;
-            transition: .2s;
-            border-radius: 50%;
-        }
-
-        input:checked + .slider {
-            background-color: var(--green-toggle);
-        }
-
-        input:checked + .slider:before {
-            transform: translateX(22px);
-        }
-
-        /* --- SPLIT GRID AREA --- */
-        .split-row {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 24px;
-        }
-
-        .medication-box {
-            background-color: #fafafa;
-            border: 1px solid var(--border-light);
-            border-radius: 8px;
-            padding: 16px;
-        }
-
-        .medication-box h4 {
-            margin: 0 0 4px 0;
-            font-size: 15px;
-            color: var(--text-main);
-        }
-
-        .medication-box p {
-            margin: 2px 0;
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        .badge-container {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .badge {
+        .badge-allergy {
             background-color: #fee2e2;
             color: #ef4444;
-            padding: 6px 14px;
+            padding: 6px 12px;
             border-radius: 6px;
-            font-size: 13px;
-            font-weight: 600;
+            font-weight: 500;
+            font-size: 0.85rem;
+            display: inline-block;
+            margin-right: 8px;
         }
     </style>
 </head>
 <body>
 
-<div class="dashboard-container">
-
-    <aside class="sidebar">
-        <div class="brand-header">
-            <div class="avatar-box">
-                <i class="fa-solid fa-user"></i>
+    <div class="sidebar">
+        <div class="sidebar-brand">
+            <div class="icon-box">
+                <i class="fa-solid fa-user-shield"></i>
             </div>
-            <div class="brand-text">
-                <h3>Patient</h3>
-                <span>Portal</span>
+            <div>
+                <h6 class="fw-bold mb-0">Patient</h6>
+                <small class="text-muted" style="font-size: 0.75rem;">Portal Panel</small>
             </div>
         </div>
 
-        <nav class="nav-menu">
-            <a href="#" class="nav-item"><i class="fa-regular fa-file-lines"></i> Medical Records</a>
-            <a href="#" class="nav-item active"><i class="fa-solid fa-shield-halved"></i> Privacy Settings</a>
-            <a href="#" class="nav-item"><i class="fa-solid fa-heart-pulse"></i> Current Health</a>
-        </nav>
+        <div class="sidebar-menu">
+            <a href="dashboard.php" class="menu-btn"><i class="fa-solid fa-chart-pie"></i>Dashboard</a>
+            <a href="medicalrecord.php" class="menu-btn secondary"><i class="fa-solid fa-file-medical"></i>Medical Records</a>
+            <a href="privacy_settings.php" class="menu-btn secondary"><i class="fa-solid fa-shield-halved"></i>Privacy Settings</a>
+            <a href="current_health.php" class="menu-btn secondary"><i class="fa-solid fa-heart-pulse"></i>Current Health</a>
+        </div>
 
-        <a href="logout.php" class="logout-link">
+        <a href="logout.php" class="logout-btn">
             <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
         </a>
-    </aside>
+    </div>
 
-    <main class="main-content">
-        <header class="welcome-header">
-            <h1>Welcome, <?php echo htmlspecialchars($patient_name); ?></h1>
-            <p class="patient-tag">Patient ID: <?php echo htmlspecialchars($patient_id); ?></p>
-        </header>
-
-        <section class="card">
-            <div class="card-header-title">
-                <i class="fa-regular fa-shield" style="color: var(--primary-blue)"></i> Privacy Controls
-            </div>
-            <p class="card-subtitle">Control what medical information is visible to doctors and hospitals</p>
-
-            <div class="privacy-grid">
-                <div class="privacy-item">
-                    <div class="privacy-label"><i class="fa-regular fa-eye icon-visible"></i> Allergies</div>
-                    <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
-                </div>
-                
-                <div class="privacy-item">
-                    <div class="privacy-label"><i class="fa-regular fa-eye icon-visible"></i> Medications</div>
-                    <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
-                </div>
-
-                <div class="privacy-item">
-                    <div class="privacy-label"><i class="fa-regular fa-eye icon-visible"></i> Chronic Conditions</div>
-                    <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
-                </div>
-
-                <div class="privacy-item">
-                    <div class="privacy-label"><i class="fa-regular fa-eye-slash icon-hidden"></i> Mental Health</div>
-                    <label class="switch"><input type="checkbox"><span class="slider"></span></label>
-                </div>
-
-                <div class="privacy-item">
-                    <div class="privacy-label"><i class="fa-regular fa-eye icon-visible"></i> Surgical History</div>
-                    <label class="switch"><input type="checkbox" checked><span class="slider"></span></label>
-                </div>
-            </div>
-        </section>
-
-        <div class="split-row">
-            <section class="card">
-                <div class="card-header-title" style="font-size: 16px;">Current Medications</div>
-                <div style="margin-top: 15px;">
-                
-                </div>
-            </section>
-
-            <section class="card">
-                <div class="card-header-title" style="font-size: 16px;">Allergies</div>
-                <div style="margin-top: 15px;" class="badge-container">
-                    <span class="badge">Penicillin</span>
-                    <span class="badge">Peanuts</span>
-                </div>
-            </section>
+    <div class="main-content">
+        
+        <div class="mb-4">
+            <h2 class="fw-bold mb-1">Welcome, <?php echo htmlspecialchars($_SESSION['full_name'] ?? 'david bwashi'); ?></h2>
+            <p class="text-muted small mb-0">Patient Reference Number: PT-2026-0<?php echo htmlspecialchars($_SESSION['user_id'] ?? '1'); ?></p>
         </div>
 
-    </main>
-</div>
+        <?php if (isset($error_msg)): ?>
+            <div class="alert alert-danger" role="alert">
+                <i class="fa-solid fa-triangle-exclamation me-2"></i><?php echo $error_msg; ?>
+            </div>
+        <?php endif; ?>
 
+        <div class="row g-3 mb-4">
+            <div class="col-md-4">
+                <div class="card card-custom p-3 border-start border-4 border-success">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold">Accepted Doctors</span>
+                            <h3 class="fw-bold mb-0 mt-1"><?php echo (int)($doctors_count ?? 0); ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-custom p-3 border-start border-4 border-info">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold">Medical Records</span>
+                            <h3 class="fw-bold mb-0 mt-1"><?php echo (int)($records_count ?? 0); ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card card-custom p-3 border-start border-4 border-warning">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div>
+                            <span class="text-muted small text-uppercase fw-bold">Recommended Meds</span>
+                            <h3 class="fw-bold mb-0 mt-1"><?php echo (int)($medications_count ?? 0); ?></h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card card-custom p-4">
+            <div class="d-flex align-items-center gap-2 mb-1">
+                <i class="fa-solid fa-shield-halved text-info"></i>
+                <h5 class="fw-bold mb-0">Privacy Consent Controls</h5>
+            </div>
+            <p class="text-muted small mb-4">Configure information exposure levels across external healthcare facility platforms</p>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="control-row">
+                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Allergies Summary</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Chronic Diagnostic Logs</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                        </div>
+                    </div>
+                    <div class="control-row">
+                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Surgical Typologies</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="control-row">
+                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Active Prescription Tracking</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                        </div>
+                    </div>
+                    <div class="control-row" style="background-color: #f8fafc; border-color: #e2e8f0;">
+                        <span class="fw-medium text-muted"><i class="fa-solid fa-eye-slash text-secondary me-2"></i> Sensitive Mental Health Summary</span>
+                        <div class="form-check form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" role="switch">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card card-custom p-4 h-100">
+                    <h6 class="fw-bold mb-3 text-dark">Current Medications</h6>
+                    
+                    <?php if (!empty($medications)): ?>
+                        <?php foreach ($medications as $med): ?>
+                            <div class="p-3 border rounded-3 mb-2 bg-light">
+                                <h6 class="fw-bold mb-1 text-dark"><?php echo htmlspecialchars($med['medication_name']); ?> - <?php echo htmlspecialchars($med['dosage']); ?></h6>
+                                <p class="text-muted small mb-1"><?php echo htmlspecialchars($med['frequency']); ?></p>
+                                <small class="text-secondary">By <?php echo htmlspecialchars($med['prescribed_by']); ?></small>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php else: ?>
+                        <div class="text-center py-4 text-muted small">
+                            No active long-term prescriptions cataloged on the middleware system yet.
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="card card-custom p-4 h-100">
+                    <h6 class="fw-bold mb-3 text-dark">Active Allergen Flag Logs</h6>
+                    <div class="py-2">
+                        <span class="badge-allergy">Penicillin Compounds</span>
+                        <span class="badge-allergy">Sulphur Excipients</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12">
+                <div class="card border-0 shadow-sm rounded-4">
+                    <div class="card-header bg-white py-3 border-0">
+                        <h5 class="fw-bold mb-0 text-dark">Recent EMR Facility Exchanges</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light text-secondary">
+                                    <tr>
+                                        <th class="ps-4">Visit Classification</th>
+                                        <th>Originating Healthcare Facility</th>
+                                        <th class="pe-4">Integration Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php if (!empty($recent_records)): ?>
+                                        <?php foreach ($recent_records as $row): ?>
+                                            <tr>
+                                                <td class="ps-4 fw-medium text-dark">
+                                                    <?php echo htmlspecialchars($row['visit_type']); ?>
+                                                </td>
+                                                <td><?php echo htmlspecialchars($row['hospital_name']); ?></td>
+                                                <td class="pe-4 text-muted small"><?php echo htmlspecialchars($row['visit_date']); ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    <?php else: ?>
+                                        <tr>
+                                            <td colspan="3" class="text-center py-4 text-muted">
+                                                No unified clinical summaries retrieved from connected local EMRs yet.
+                                            </td>
+                                        </tr>
+                                    <?php endif; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

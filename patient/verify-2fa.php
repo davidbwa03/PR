@@ -16,8 +16,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = $_SESSION['patient'];
 
     try {
-        // Query the live table to check the assigned verification parameters
-        $stmt = $pdo->prepare("SELECT email_2fa_code, two_fa_expires_at FROM patients WHERE email = ?");
+        // MODIFIED: Added 'id' and 'name' to the query select statement to populate the dashboard metrics properly
+        $stmt = $pdo->prepare("SELECT id, name, email_2fa_code, two_fa_expires_at FROM patients WHERE email = ?");
         $stmt->execute([$email]);
         $patient = $stmt->fetch();
 
@@ -33,9 +33,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $error = "The verification code has expired. Please log in again.";
                 unset($_SESSION['2fa_pending']);
             } 
-            // 2. Perform strict verification matching against the stored hash field
+            // 2. Perform strict verification matching against the stored field
             elseif ($user_otp === $db_code) {
-                // SUCCESS: Elevate authorization states
+                
+                // -------------------------------------------------------------
+                // FIX: INITIALIZE THE STRUCTURAL KEYS DEMANDED BY DASHBOARD.PHP
+                // -------------------------------------------------------------
+                $_SESSION['user_id'] = $patient['id'];       // Pass the active integer ID
+                $_SESSION['role']    = 'Patient';            // Match case precisely with RBAC gate
+                $_SESSION['full_name'] = $patient['name'];   // Displayed inside dashboard navigation menu
+                
+                // Keep safety verified tracking parameter
                 $_SESSION['2fa_verified'] = true;
                 
                 // Clear the used token out of the database column for security compliance
@@ -47,7 +55,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 unset($_SESSION['2fa_otp']);
                 unset($_SESSION['2fa_expires']);
 
-                // Route the verified patient straight into the main dashboard view
+                // Route the verified patient straight into the main dashboard view safely
                 header("Location: dashboard.php");
                 exit();
             } else {
