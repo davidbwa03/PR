@@ -1,28 +1,22 @@
 <?php
-// Start secure session state
 session_start();
 
-// Enforce Patient Role-Based Access Control (RBAC)
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Patient') {
     header("Location: login.php");
     exit();
 }
 
-// Include your local database connection parameters
 require_once 'db.php'; 
 
 try {
-    // Capture the verified user's ID from the session state
     $patient_id = $_SESSION['user_id']; 
 
-    // --- HARMONIZED ANALYTICS QUERIES (Matching healthcare_middleware.sql precisely) ---
-    
-    // 1. Count of successfully accepted/verified practitioners
-    $stmt_docs = $pdo->prepare("SELECT COUNT(DISTINCT practitioner_id) AS total_doctors FROM practitioner_consents WHERE patient_id = :patient_id AND status = 'Accepted'");
+    // 1. ✅ FIXED: Count accepted doctors from access_requests (matches privacy_settings.php)
+    $stmt_docs = $pdo->prepare("SELECT COUNT(*) AS total_doctors FROM access_requests WHERE patient_id = :patient_id AND request_status = 'approved'");
     $stmt_docs->execute(['patient_id' => $patient_id]);
     $doctors_count = $stmt_docs->fetch()['total_doctors'];
 
-    // 2. Count of integrated health records recorded on the middleware platform
+    // 2. Count of integrated health records
     $stmt_records = $pdo->prepare("SELECT COUNT(*) AS total_records FROM medical_records WHERE patient_id = :patient_id");
     $stmt_records->execute(['patient_id' => $patient_id]);
     $records_count = $stmt_records->fetch()['total_records'];
@@ -32,18 +26,17 @@ try {
     $stmt_meds->execute(['patient_id' => $patient_id]);
     $medications_count = $stmt_meds->fetch()['total_medications'];
 
-    // 4. Fetch the 2 most recent prescriptions for the lower-left display panel
+    // 4. Fetch the 2 most recent prescriptions
     $stmt_med_list = $pdo->prepare("SELECT medication_name, dosage, frequency, prescribed_by FROM medication_prescriptions WHERE patient_id = :patient_id ORDER BY id DESC LIMIT 2");
     $stmt_med_list->execute(['patient_id' => $patient_id]);
     $medications = $stmt_med_list->fetchAll();
 
-    // 5. Fetch the 5 most recent clinical interactions for the main history table view
+    // 5. Fetch the 5 most recent clinical interactions
     $stmt_audit = $pdo->prepare("SELECT visit_type, hospital_name, visit_date FROM medical_records WHERE patient_id = :patient_id ORDER BY visit_date DESC LIMIT 5");
     $stmt_audit->execute(['patient_id' => $patient_id]);
     $recent_records = $stmt_audit->fetchAll();
 
 } catch (PDOException $e) {
-    // Graceful fallback to hide raw MySQL database system logs from leaking to user views
     $error_msg = "An error occurred retrieving your SHIF integration analytics.";
 }
 ?>
@@ -71,13 +64,10 @@ try {
             overflow-x: hidden;
         }
 
-        /* Fixed Sidebar Layout styling */
         .sidebar {
             width: var(--sidebar-width);
             position: fixed;
-            top: 0;
-            bottom: 0;
-            left: 0;
+            top: 0; bottom: 0; left: 0;
             background-color: #ffffff;
             border-right: 1px solid #e2e8f0;
             padding: 24px;
@@ -98,112 +88,56 @@ try {
         .sidebar-brand .icon-box {
             background-color: var(--shif-teal);
             color: white;
-            width: 40px;
-            height: 40px;
+            width: 40px; height: 40px;
             border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; align-items: center; justify-content: center;
             font-size: 1.2rem;
         }
 
-        .sidebar-menu {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            flex-grow: 1;
-        }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 8px; flex-grow: 1; }
 
         .menu-btn {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            width: 100%;
-            padding: 12px 16px;
+            display: flex; align-items: center; gap: 12px;
+            width: 100%; padding: 12px 16px;
             background-color: var(--shif-teal);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-weight: 500;
-            text-align: left;
-            text-decoration: none;
+            color: white; border: none; border-radius: 8px;
+            font-weight: 500; text-align: left; text-decoration: none;
             transition: all 0.2s ease;
         }
 
-        .menu-btn.secondary {
-            background-color: transparent;
-            color: #64748b;
-        }
-
-        .menu-btn:hover {
-            background-color: var(--shif-teal-hover);
-            color: white;
-        }
-
-        .menu-btn.secondary:hover {
-            background-color: #f1f5f9;
-            color: var(--text-dark);
-        }
+        .menu-btn.secondary { background-color: transparent; color: #64748b; }
+        .menu-btn:hover { background-color: var(--shif-teal-hover); color: white; }
+        .menu-btn.secondary:hover { background-color: #f1f5f9; color: var(--text-dark); }
 
         .logout-btn {
-            margin-top: auto;
-            color: #64748b;
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 16px;
-            border-radius: 8px;
-            transition: background 0.2s;
+            margin-top: auto; color: #64748b; text-decoration: none;
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 16px; border-radius: 8px; transition: background 0.2s;
         }
+        .logout-btn:hover { background-color: #fef2f2; color: #ef4444; }
 
-        .logout-btn:hover {
-            background-color: #fef2f2;
-            color: #ef4444;
-        }
+        .main-content { margin-left: var(--sidebar-width); padding: 40px; min-height: 100vh; }
 
-        /* Main View Window Frame Layout */
-        .main-content {
-            margin-left: var(--sidebar-width);
-            padding: 40px;
-            min-height: 100vh;
-        }
-
-        /* Dashboard Interface Structural Components */
         .card-custom {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 16px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            background: #ffffff; border: 1px solid #e2e8f0;
+            border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.02);
             margin-bottom: 24px;
         }
 
         .control-row {
-            background-color: #ffffff;
-            border: 1px solid #f1f5f9;
-            border-radius: 12px;
-            padding: 14px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            background-color: #ffffff; border: 1px solid #f1f5f9;
+            border-radius: 12px; padding: 14px 20px;
+            display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 12px;
         }
 
-        /* Switch Styling Integration */
-        .form-check-input:checked {
-            background-color: #22c55e;
-            border-color: #22c55e;
-        }
+        .form-check-input:checked { background-color: #22c55e; border-color: #22c55e; }
 
         .badge-allergy {
-            background-color: #fee2e2;
-            color: #ef4444;
-            padding: 6px 12px;
-            border-radius: 6px;
-            font-weight: 500;
-            font-size: 0.85rem;
-            display: inline-block;
-            margin-right: 8px;
+            background-color: #fee2e2; color: #ef4444;
+            padding: 6px 12px; border-radius: 6px;
+            font-weight: 500; font-size: 0.85rem;
+            display: inline-block; margin-right: 8px;
         }
     </style>
 </head>
@@ -211,9 +145,7 @@ try {
 
     <div class="sidebar">
         <div class="sidebar-brand">
-            <div class="icon-box">
-                <i class="fa-solid fa-user-shield"></i>
-            </div>
+            <div class="icon-box"><i class="fa-solid fa-user-shield"></i></div>
             <div>
                 <h6 class="fw-bold mb-0">Patient</h6>
                 <small class="text-muted" style="font-size: 0.75rem;">Portal Panel</small>
@@ -235,7 +167,7 @@ try {
     <div class="main-content">
         
         <div class="mb-4">
-            <h2 class="fw-bold mb-1">Welcome, <?php echo htmlspecialchars($_SESSION['full_name'] ?? 'david bwashi'); ?></h2>
+            <h2 class="fw-bold mb-1">Welcome, <?php echo htmlspecialchars($_SESSION['full_name'] ?? 'Patient'); ?></h2>
             <p class="text-muted small mb-0">Patient Reference Number: PT-2026-0<?php echo htmlspecialchars($_SESSION['user_id'] ?? '1'); ?></p>
         </div>
 
@@ -327,7 +259,6 @@ try {
             <div class="col-md-6">
                 <div class="card card-custom p-4 h-100">
                     <h6 class="fw-bold mb-3 text-dark">Current Medications</h6>
-                    
                     <?php if (!empty($medications)): ?>
                         <?php foreach ($medications as $med): ?>
                             <div class="p-3 border rounded-3 mb-2 bg-light">
@@ -375,9 +306,7 @@ try {
                                     <?php if (!empty($recent_records)): ?>
                                         <?php foreach ($recent_records as $row): ?>
                                             <tr>
-                                                <td class="ps-4 fw-medium text-dark">
-                                                    <?php echo htmlspecialchars($row['visit_type']); ?>
-                                                </td>
+                                                <td class="ps-4 fw-medium text-dark"><?php echo htmlspecialchars($row['visit_type']); ?></td>
                                                 <td><?php echo htmlspecialchars($row['hospital_name']); ?></td>
                                                 <td class="pe-4 text-muted small"><?php echo htmlspecialchars($row['visit_date']); ?></td>
                                             </tr>

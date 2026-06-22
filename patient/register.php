@@ -5,42 +5,42 @@ require_once 'send-email.php'; // Links the PHPMailer engine connection handler
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $full_name        = trim($_POST['full_name']);
+    $national_id      = trim($_POST['national_id']); // New field
     $email            = trim($_POST['email']);
     $password         = $_POST['password'];
     $confirm_password = $_POST['confirm_password'];
     
-    // Additional form fields matching your database structure
     $dob              = $_POST['dob'];
     $gender           = $_POST['gender'];
     $blood_group      = $_POST['blood_group'];
     $phone            = trim($_POST['phone']);
 
-    // Check if passwords match
     if ($password !== $confirm_password) {
         $message = "Passwords do not match!";
     } else {
         try {
-            // 1. Check if the email address is already taken
-            $stmt = $pdo->prepare("SELECT id FROM patients WHERE email = ?");
-            $stmt->execute([$email]);
+            // 1. Check if the email or national_id already exists
+            $stmt = $pdo->prepare("SELECT id FROM patients WHERE email = ? OR national_id = ?");
+            $stmt->execute([$email, $national_id]);
             
             if ($stmt->fetch()) {
-                $message = "An account with this email address already exists.";
+                $message = "An account with this email or National ID already exists.";
             } else {
-                // 2. Hash password securely using industry-standard bcrypt
+                // 2. Hash password
                 $hashed_password = password_hash($password, PASSWORD_BCRYPT);
 
-                // 3. Generate verification data parameters
+                // 3. Generate verification data
                 $otp_code = (string)rand(100000, 999999);
-                $expires_at = date('Y-m-d H:i:s', time() + 600); // 10 minute window
+                $expires_at = date('Y-m-d H:i:s', time() + 600);
 
-                // 4. Secure insertion using Prepared Statements
-                $sql = "INSERT INTO patients (name, dob, gender, blood_group, phone, email, password, email_2fa_code, two_fa_expires_at) 
-                        VALUES (:name, :dob, :gender, :blood_group, :phone, :email, :password, :otp, :expires)";
+                // 4. Secure insertion
+                $sql = "INSERT INTO patients (name, national_id, dob, gender, blood_group, phone, email, password, email_2fa_code, two_fa_expires_at) 
+                        VALUES (:name, :national_id, :dob, :gender, :blood_group, :phone, :email, :password, :otp, :expires)";
                 
                 $insertStmt = $pdo->prepare($sql);
                 $insertStmt->execute([
                     ':name'        => $full_name,
+                    ':national_id' => $national_id,
                     ':dob'         => $dob,
                     ':gender'      => $gender,
                     ':blood_group' => $blood_group,
@@ -51,15 +51,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     ':expires'     => $expires_at
                 ]);
 
-                // 5. Establish secure session environments
                 $_SESSION['patient'] = $email;
                 $_SESSION['patient_name'] = $full_name;
                 $_SESSION['2fa_pending'] = true;
 
-                // 6. Send the code straight to the patient's real email inbox
                 sendOTP($email, $full_name, $otp_code);
 
-                // Route directly to identity check step
                 header("Location: verify-2fa.php");
                 exit();
             }
@@ -79,7 +76,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <body>
 
 <div class="container">
-
     <h2>Patient Registration</h2>
 
     <?php if (isset($message) && $message != "") { ?>
@@ -89,10 +85,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     <?php } ?>
 
     <form method="POST" action="register.php">
-
         <div class="form-group">
             <label>Full Name</label>
             <input type="text" name="full_name" required>
+        </div>
+
+        <div class="form-group">
+            <label>National ID / Passport Number</label>
+            <input type="text" name="national_id" required>
         </div>
 
         <div class="form-group">
@@ -144,17 +144,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <input type="password" name="confirm_password" required>
         </div>
 
-        <button type="submit" class="btn">
-            Register
-        </button>
-
+        <button type="submit" class="btn">Register</button>
     </form>
 
     <div class="login-link">
-        Already have an account?
-        <a href="login.php">Login Here</a>
+        Already have an account? <a href="login.php">Login Here</a>
     </div>
-
 </div>
 
 </body>

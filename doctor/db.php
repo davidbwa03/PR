@@ -1,12 +1,20 @@
 <?php
-$host = 'localhost';
-$user = 'root'; // Default XAMPP username
-$pass = '';     // Default XAMPP password is empty
-$db   = 'healthcare_middleware'; // REPLACE with your actual database name
+$host     = 'localhost';
+$dbname   = 'healthcare_middleware';        // your database name
+$username = 'root';      // XAMPP default
+$password = '';          // XAMPP default (empty)
 
-$conn = new mysqli($host, $user, $pass, $db);
-
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+try {
+    $pdo = new PDO(
+        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]
+    );
+} catch (PDOException $e) {
+    die("Database connection failed: " . $e->getMessage());
 }
-?>

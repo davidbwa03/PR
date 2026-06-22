@@ -1,5 +1,6 @@
 <?php
 session_start();
+// Ensure user is logged in
 if (!isset($_SESSION['2fa_verified']) || $_SESSION['2fa_verified'] !== true) {
     header("Location: login.php");
     exit();
@@ -7,16 +8,25 @@ if (!isset($_SESSION['2fa_verified']) || $_SESSION['2fa_verified'] !== true) {
 require_once 'db.php';
 
 $patient_email = $_SESSION['patient'];
-$stmt = $pdo->prepare("SELECT id, name FROM patients WHERE email = :email");
-$stmt->execute(['email' => $patient_email]);
-$user = $stmt->fetch();
-$real_id = $user['id'] ?? 1;
 
+// Fetch id, name, and national_id from the database
+$stmt = $pdo->prepare("SELECT id, name, national_id FROM patients WHERE email = :email");
+$stmt->execute(['email' => $patient_email]);
+$user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$user) {
+    die("Error: Patient record not found.");
+}
+
+$real_id = $user['id'];
+
+// Fetch pending requests
 $stmt_req = $pdo->prepare("SELECT id, doctor_name, medical_facility, requested_at 
                            FROM access_requests 
-                           WHERE patient_id = :pid AND request_status = 'pending'");
+                           WHERE patient_id = :pid AND request_status = 'pending' 
+                           ORDER BY requested_at DESC");
 $stmt_req->execute(['pid' => $real_id]);
-$requests = $stmt_req->fetchAll();
+$requests = $stmt_req->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,15 +37,12 @@ $requests = $stmt_req->fetchAll();
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
-        
-        /* Sidebar Style*/
         .sidebar { width: 260px; height: 100vh; position: fixed; background: white; border-right: 1px solid #e2e8f0; padding: 20px; display: flex; flex-direction: column; }
         .sidebar-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 30px; }
         .icon-box { background: #0e7490; color: white; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; }
         .nav-item { padding: 12px; margin-bottom: 8px; border-radius: 8px; color: #475569; text-decoration: none; display: flex; align-items: center; }
         .nav-item.active { background: #0e7490; color: white; }
         .sign-out { margin-top: auto; color: #64748b; text-decoration: none; }
-
         .main-content { margin-left: 260px; padding: 40px; }
         .card-custom { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
         .request-item { display: flex; justify-content: space-between; align-items: center; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; margin-bottom: 10px; }
@@ -58,22 +65,29 @@ $requests = $stmt_req->fetchAll();
 </div>
 
 <div class="main-content">
-    <h3>Welcome, David Bwashi</h3>
-    <p class="text-muted">Patient Reference Number: PT-2026-01</p>
+    <h3>Welcome, <?php echo htmlspecialchars($user['name']); ?></h3>
+    <p class="text-muted">National ID: <?php echo htmlspecialchars($user['national_id'] ?? 'Not Set'); ?></p>
 
     <section class="card-custom border-warning" style="border-left: 5px solid #eab308;">
         <h5><i class="fa-solid fa-user-doctor text-warning me-2"></i> Incoming Doctor Access Requests</h5>
-        <?php foreach ($requests as $req): ?>
-            <div class="request-item">
-                <div><strong>Dr. <?php echo htmlspecialchars($req['doctor_name']); ?></strong><br>
-                <small><?php echo htmlspecialchars($req['medical_facility']); ?></small></div>
-                <form action="process_access.php" method="POST">
-                    <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
-                    <button type="submit" name="action" value="approved" class="btn-approve">Approve</button>
-                    <button type="submit" name="action" value="declined" class="btn-decline">Decline</button>
-                </form>
-            </div>
-        <?php endforeach; ?>
+        
+        <?php if (!empty($requests)): ?>
+            <?php foreach ($requests as $req): ?>
+                <div class="request-item">
+                    <div>
+                        <strong>Dr. <?php echo htmlspecialchars($req['doctor_name'] ?? 'Unknown Doctor'); ?></strong><br>
+                        <small class="text-muted"><?php echo htmlspecialchars($req['medical_facility'] ?? 'No facility provided'); ?></small>
+                    </div>
+                    <form action="process_access.php" method="POST">
+                        <input type="hidden" name="request_id" value="<?php echo $req['id']; ?>">
+                        <button type="submit" name="action" value="approved" class="btn-approve">Approve</button>
+                        <button type="submit" name="action" value="declined" class="btn-decline">Decline</button>
+                    </form>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p class="text-muted mt-3">No pending access requests at this time.</p>
+        <?php endif; ?>
     </section>
 </div>
 

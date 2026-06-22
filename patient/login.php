@@ -1,16 +1,14 @@
 <?php
 session_start();
 
-// Enable strict error reporting to help uncover hidden database crashes
+// Enable strict error reporting
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-// Securely check database connectivity variables
 if (!file_exists('db.php')) {
     die("Deployment Error: db.php configuration file is missing from this workspace root layout.");
 }
-require_once 'db.php';         // Connects to your local MySQL database
+require_once 'db.php'; 
 
-// Defensive verification checks on PHPMailer requirements
 $has_mailer = file_exists('send-email.php');
 if ($has_mailer) {
     require_once 'send-email.php';
@@ -18,67 +16,56 @@ if ($has_mailer) {
 
 $error = "";
 
-// Process form submissions
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
-    // Sanitize user entry bounds to check matching fields cleanly
-    $email = isset($_POST['email']) ? trim($_POST['email']) : '';
+    // Capture the input as 'login_id' (could be email or national_id)
+    $login_id = isset($_POST['login_id']) ? trim($_POST['login_id']) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
 
-    if (empty($email) || empty($password)) {
-        $error = "Please fill in both email and password fields.";
+    if (empty($login_id) || empty($password)) {
+        $error = "Please fill in all fields.";
     } else {
         try {
-            // Ensure connection instance is initialized completely
             if (!isset($pdo)) {
-                throw new PDOException("Database connection object ($pdo) was not initialized inside db.php.");
+                throw new PDOException("Database connection object ($pdo) was not initialized.");
             }
 
-            // 1. Search for the patient row based on email parameters
-            $stmt = $pdo->prepare("SELECT id, name, email, password FROM patients WHERE email = ? LIMIT 1");
-            $stmt->execute([$email]);
+            // 1. Search for the patient where login_id matches either email OR national_id
+            $stmt = $pdo->prepare("SELECT id, name, email, password FROM patients WHERE email = ? OR national_id = ? LIMIT 1");
+            $stmt->execute([$login_id, $login_id]);
             $patient = $stmt->fetch();
 
-            // 2. Evaluate matches using standard bcrypt structures
+            // 2. Evaluate password match
             if ($patient && password_verify($password, $patient['password'])) {
 
-                // 3. Set up patient identity properties across session memories
                 $_SESSION['patient'] = $patient['email'];
                 $_SESSION['patient_name'] = $patient['name'];
                 $_SESSION['patient_id'] = $patient['id']; 
                 $_SESSION['2fa_pending'] = true; 
 
-                // 4. Generate a fresh 6-digit verification code token
+                // 3. Generate and update OTP
                 $otp_code = (string)rand(100000, 999999);
-                $expires_at = date('Y-m-d H:i:s', time() + 600); // 10 minutes validation window
+                $expires_at = date('Y-m-d H:i:s', time() + 600);
 
-                // 5. Commit token credentials to the data schema row instance safely
-                $update_stmt = $pdo->prepare("UPDATE patients SET email_2fa_code = ?, two_fa_expires_at = ? WHERE email = ?");
-                $update_stmt->execute([$otp_code, $expires_at, $email]);
+                $update_stmt = $pdo->prepare("UPDATE patients SET email_2fa_code = ?, two_fa_expires_at = ? WHERE id = ?");
+                $update_stmt->execute([$otp_code, $expires_at, $patient['id']]);
 
-                // 6. Transmit OTP through PHPMailer pipelines if available
                 if ($has_mailer && function_exists('sendOTP')) {
-                    sendOTP($email, $patient['name'], $otp_code);
+                    sendOTP($patient['email'], $patient['name'], $otp_code);
                 } else {
-                    // Fallback debug option if mail configuration thresholds fail local constraints
                     $_SESSION['2fa_debug_code'] = $otp_code;
                 }
 
-                // Redirect smoothly to your security gateway verification frame
                 header("Location: verify-2fa.php");
                 exit();
 
             } else {
-                // Defensive Cleanup: Purge memory buffers if validation returns false
                 unset($_SESSION['patient']);
                 unset($_SESSION['2fa_pending']);
-                $error = "Invalid email or password.";
+                $error = "Invalid login credentials.";
             }
         } catch (PDOException $e) {
-            // Captures missing tables, column errors, or unexpected database terminations
-            $error = "System Authentication Failure: " . $e->getMessage() . " [Code: " . $e->getCode() . "]";
-        } catch (Exception $generic_exception) {
-            $error = "General Application Exception: " . $generic_exception->getMessage();
+            $error = "System Authentication Failure: " . $e->getMessage();
         }
     }
 }
@@ -108,11 +95,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <form method="POST" action="login.php">
         <input 
-            type="email"
-            name="email"
-            placeholder="Email"
-            required
-            autocomplete="email">
+            type="text"
+            name="login_id"
+            placeholder="Email or National ID"
+            required>
 
         <input
             type="password"

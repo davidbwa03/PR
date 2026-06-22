@@ -254,6 +254,16 @@ try {
             margin: 4px 0 0 0;
         }
 
+        .record-footer {
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px dashed #e2e8f0;
+            font-size: 12px;
+            color: #94a3b8;
+            display: flex;
+            justify-content: space-between;
+        }
+
         .no-records {
             text-align: center;
             padding: 48px;
@@ -343,8 +353,30 @@ try {
 
                     <div>
                         <div class="meta-label">Clinical Notes</div>
-                        <p class="notes-content"><?php echo htmlspecialchars($record['clinical_notes']); ?></p>
+                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['clinical_notes'])); ?></p>
                     </div>
+
+                    <?php if (!empty($record['notes'])): ?>
+                    <div class="mt-3">
+                        <div class="meta-label">Additional Notes</div>
+                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['notes'])); ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($record['created_by']) || !empty($record['created_at'])): ?>
+                    <div class="record-footer">
+                        <span>
+                            <?php if (!empty($record['created_by'])): ?>
+                                Recorded by: <?php echo htmlspecialchars($record['created_by']); ?>
+                            <?php endif; ?>
+                        </span>
+                        <span>
+                            <?php if (!empty($record['created_at'])): ?>
+                                Logged: <?php echo date('Y-m-d H:i', strtotime($record['created_at'])); ?>
+                            <?php endif; ?>
+                        </span>
+                    </div>
+                    <?php endif; ?>
 
                 </div>
             <?php endforeach; ?>
