@@ -1,33 +1,43 @@
 <?php
 session_start();
-
-if (isset($_SESSION['doctor_id'])) {
-    header("Location: dashboard.php");
-    exit();
-}
-
 require_once 'db.php';
+require_once 'send-email.php';
 
-$error_msg = '';
+$error = "";
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $email    = trim($_POST['email'] ?? '');
-    $password = trim($_POST['password'] ?? '');
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
 
     if (empty($email) || empty($password)) {
-        $error_msg = "Please enter both email and password.";
+        $error = "Please fill in all fields.";
     } else {
-        $stmt = $pdo->prepare("SELECT * FROM doctors WHERE email = :email");
-        $stmt->execute(['email' => $email]);
+        // Query the doctors table
+        $stmt = $pdo->prepare("SELECT id, name, email, password FROM doctors WHERE email = ? LIMIT 1");
+        $stmt->execute([$email]);
         $doctor = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if ($doctor && password_verify($password, $doctor['password'])) {
-            $_SESSION['doctor_id']   = $doctor['id'];
+            // Set session context for 2FA
+            $_SESSION['doctor_id'] = $doctor['id'];
             $_SESSION['doctor_name'] = $doctor['name'];
-            header("Location: dashboard.php");
+            $_SESSION['doctor_email'] = $doctor['email'];
+            $_SESSION['2fa_pending'] = true;
+
+            // Generate and update OTP in database
+            $otp_code = (string)rand(100000, 999999);
+            $expires_at = date('Y-m-d H:i:s', time() + 600); // 10 minutes
+
+            $update = $pdo->prepare("UPDATE doctors SET otp_code = ?, otp_expires_at = ? WHERE id = ?");
+            $update->execute([$otp_code, $expires_at, $doctor['id']]);
+
+            // Trigger Email
+            sendOTP($doctor['email'], $doctor['name'], $otp_code);
+
+            header("Location: verify-2fa.php");
             exit();
         } else {
-            $error_msg = "Invalid email or password.";
+            $error = "Invalid login credentials.";
         }
     }
 }
@@ -166,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <h2>Practitioner Login</h2>
 
-    <?php if ($error_msg): ?>
+    <?php if (!empty($error_msg)): ?>
         <div class="alert-error">
             &#9888; <?php echo htmlspecialchars($error_msg); ?>
         </div>
