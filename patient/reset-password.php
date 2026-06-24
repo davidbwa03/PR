@@ -135,19 +135,10 @@ if (!empty($_SESSION['reset_patient_email'])) {
 
         <h1>Verify Your Email</h1>
 
-        <p style="text-align: center; font-size: 14px; color: #64748b; margin-bottom: 24px; line-height: 1.5;">
-            A 6-digit verification code was sent to
-            <?php if ($masked_email): ?>
-                <strong style="color: #0f172a;"><?php echo htmlspecialchars($masked_email); ?></strong>.
-            <?php else: ?>
-                your registered email.
-            <?php endif; ?>
-            It expires in <strong>10 minutes</strong>.
-        </p>
 
         <?php if ($debug_code): ?>
             <div style="color: #92400e; background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; text-align: center; font-size: 13px; margin-bottom: 20px;">
-                ⚠️ <strong>Debug mode</strong> — mailer not configured.<br>
+            <strong>Debug mode</strong> — mailer not configured.<br>
                 Your OTP: <strong style="letter-spacing: 3px;"><?php echo htmlspecialchars($debug_code); ?></strong>
             </div>
         <?php endif; ?>
@@ -174,10 +165,6 @@ if (!empty($_SESSION['reset_patient_email'])) {
                 Verify Code
             </button>
 
-            <p style="text-align: center; margin-top: 20px; font-size: 14px; color: #64748b;">
-                Didn't receive a code?
-                <a href="forgot-password.php" style="color: #0e7490; font-weight: 600; text-decoration: none;">Try again</a>
-            </p>
         </form>
 
     <?php elseif ($step === 'new_password'): ?>
