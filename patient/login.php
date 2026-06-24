@@ -107,6 +107,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             required
             autocomplete="current-password">
 
+        <p style="text-align: right; margin-top: -8px; margin-bottom: 16px; font-size: 13px;">
+            <a href="forgot-password.php" style="color: #0e7490; font-weight: 600; text-decoration: none;">Forgot password?</a>
+        </p>
+
         <button type="submit" name="login">
             Login
         </button>
