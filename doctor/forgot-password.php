@@ -3,37 +3,38 @@ session_start();
 require_once 'db.php';
 require_once 'send-email.php';
 
-$error = "";
+$error   = "";
+$success = "";
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $email = trim($_POST['email'] ?? '');
-    $password = $_POST['password'] ?? '';
 
-    if (empty($email) || empty($password)) {
-        $error = "Please fill in all fields.";
+    if (empty($email)) {
+        $error = "Please enter your hospital email address.";
     } else {
-        $stmt = $pdo->prepare("SELECT id, name, email, password FROM doctors WHERE email = ? LIMIT 1");
+        $stmt = $pdo->prepare("SELECT id, name, email FROM doctors WHERE email = ? LIMIT 1");
         $stmt->execute([$email]);
         $doctor = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($doctor && password_verify($password, $doctor['password'])) {
-            $_SESSION['doctor_id']    = $doctor['id'];
-            $_SESSION['doctor_name']  = $doctor['name'];
-            $_SESSION['doctor_email'] = $doctor['email'];
-            $_SESSION['2fa_pending']  = true;
-
+        if ($doctor) {
             $otp_code   = (string)rand(100000, 999999);
             $expires_at = date('Y-m-d H:i:s', time() + 600);
 
             $update = $pdo->prepare("UPDATE doctors SET otp_code = ?, otp_expires_at = ? WHERE id = ?");
             $update->execute([$otp_code, $expires_at, $doctor['id']]);
 
+            $_SESSION['reset_doctor_id']    = $doctor['id'];
+            $_SESSION['reset_doctor_email'] = $doctor['email'];
+            $_SESSION['reset_doctor_name']  = $doctor['name'];
+            $_SESSION['reset_otp_pending']  = true;
+
             sendOTP($doctor['email'], $doctor['name'], $otp_code);
 
-            header("Location: verify-2fa.php");
+            header("Location: reset-password.php");
             exit();
         } else {
-            $error = "Invalid login credentials.";
+            // Generic — avoids account enumeration
+            $success = "If that email is registered, a reset code has been sent.";
         }
     }
 }
@@ -43,7 +44,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Practitioner Login</title>
+    <title>Forgot Password</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -84,14 +85,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             font-size: 1.5rem;
             font-weight: 700;
             color: #0d1f2d;
-            margin-bottom: 28px;
+            margin-bottom: 10px;
             letter-spacing: -0.01em;
+        }
+
+        .subtitle {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin-bottom: 26px;
+            line-height: 1.55;
         }
 
         .alert-error {
             background: #fef2f2;
             border: 1px solid #fecaca;
             color: #b91c1c;
+            border-radius: 8px;
+            padding: 10px 13px;
+            font-size: 0.82rem;
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        .alert-success {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            color: #15803d;
             border-radius: 8px;
             padding: 10px 13px;
             font-size: 0.82rem;
@@ -125,19 +144,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             color: #9ca3af;
             font-size: 0.88rem;
         }
-
-        .forgot-link {
-            text-align: right;
-            margin-top: -6px;
-            margin-bottom: 16px;
-            font-size: 0.8rem;
-        }
-        .forgot-link a {
-            color: #0e7490;
-            font-weight: 600;
-            text-decoration: none;
-        }
-        .forgot-link a:hover { text-decoration: underline; }
 
         .btn-login {
             width: 100%;
@@ -176,15 +182,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <a href="../index.html" style="text-decoration: none; color: #fff;"><p style="margin: 0; color: #fff;">D</p></a>
     </div>
 
-    <h2>Practitioner Login</h2>
+    <h2>Forgot Password</h2>
+    <p class="subtitle">Enter your hospital email and we'll send a verification code to reset your password.</p>
 
     <?php if (!empty($error)): ?>
-        <div class="alert-error">
-            &#9888; <?php echo htmlspecialchars($error); ?>
-        </div>
+        <div class="alert-error">&#9888; <?php echo htmlspecialchars($error); ?></div>
     <?php endif; ?>
 
-    <form method="POST" action="login.php" autocomplete="off">
+    <?php if (!empty($success)): ?>
+        <div class="alert-success">&#10003; <?php echo htmlspecialchars($success); ?></div>
+    <?php endif; ?>
+
+    <form method="POST" action="forgot-password.php" autocomplete="off">
 
         <div class="field">
             <input
@@ -197,22 +206,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             >
         </div>
 
-        <div class="field">
-            <input
-                type="password"
-                name="password"
-                placeholder="Password"
-                required
-            >
-        </div>
-
-        <div class="forgot-link">
-            <a href="forgot-password.php">Forgot password?</a>
-        </div>
-
-        <button type="submit" class="btn-login">Login</button>
+        <button type="submit" class="btn-login">Send Verification Code</button>
 
     </form>
+
+    <div class="footer-note">
+        Remembered your password? <a href="login.php">Login</a>
+    </div>
 
 </div>
 

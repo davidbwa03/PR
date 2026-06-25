@@ -244,6 +244,23 @@ $filtered = match($filter) {
         .badge-status.pending  { background: #fef9c3; color: #ca8a04; }
         .badge-status.declined { background: #fee2e2; color: #dc2626; }
 
+        /* View Records button */
+        .btn-records {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #0e7490;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.15s;
+            white-space: nowrap;
+        }
+        .btn-records:hover { background: #0b5f75; color: #fff; }
+
         /* Empty */
         .empty-state {
             text-align: center;
@@ -353,6 +370,7 @@ $filtered = match($filter) {
                     <th>Email</th>
                     <th>Requested</th>
                     <th>Status</th>
+                    <th>Records</th>
                 </tr>
             </thead>
             <tbody>
@@ -376,6 +394,15 @@ $filtered = match($filter) {
                                 <i class="fa-solid fa-circle-xmark"></i> Declined
                             <?php endif; ?>
                         </span>
+                    </td>
+                    <td>
+                        <?php if ($row['request_status'] === 'approved'): ?>
+                            <a href="patient_records.php?patient_id=<?php echo $row['patient_id']; ?>" class="btn-records">
+                                <i class="fa-solid fa-file-medical"></i> View Records
+                            </a>
+                        <?php else: ?>
+                            <span style="color:#cbd5e1; font-size:0.78rem;">—</span>
+                        <?php endif; ?>
                     </td>
                 </tr>
                 <?php endforeach; ?>
