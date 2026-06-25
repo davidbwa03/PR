@@ -6,45 +6,98 @@ if (!isset($_SESSION['doctor_id'])) {
 }
 require_once 'db.php';
 
-$doctor_id   = $_SESSION['doctor_id'];
-$doctor_name = $_SESSION['doctor_name'];
-
 $success_msg = '';
 $error_msg   = '';
 
-// Fetch only approved patients for this doctor
+$doctor_id   = $_SESSION['doctor_id'];
+$doctor_name = $_SESSION['doctor_name'];
+
+// Fetch doctor info for sidebar
+$stmtDoc = $pdo->prepare("SELECT * FROM doctors WHERE id = :id");
+$stmtDoc->execute(['id' => $doctor_id]);
+$doctor = $stmtDoc->fetch(PDO::FETCH_ASSOC);
+$doctor_specialty = $doctor['specialty'] ?? 'General Practitioner';
+
+// Fetch all patients approved/assigned to this doctor by the admin
+// Join via doctors table using doctor_id to avoid session name mismatch
 $stmt_patients = $pdo->prepare("
-    SELECT p.id, p.name, p.national_id, p.email
+    SELECT DISTINCT p.id, p.name, p.national_id, p.email
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
-    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+    JOIN doctors d ON d.name = ar.doctor_name
+    WHERE d.id = :did
+      AND ar.request_status = 'approved'
+      AND ar.records_sent = 1
     ORDER BY p.name ASC
 ");
-$stmt_patients->execute(['dname' => $doctor_name]);
+$stmt_patients->execute(['did' => $doctor_id]);
 $approved_patients = $stmt_patients->fetchAll(PDO::FETCH_ASSOC);
+
+// Selected patient context
+$selected_id      = (int)($_GET['patient_id'] ?? 0);
+$selected_patient = null;
+$recent_records   = [];
+$recent_prescriptions = [];
+
+if ($selected_id > 0) {
+    foreach ($approved_patients as $ap) {
+        if ((int)$ap['id'] === $selected_id) {
+            $selected_patient = $ap;
+            break;
+        }
+    }
+
+    if ($selected_patient) {
+        $stmt_recent_records = $pdo->prepare("
+            SELECT visit_type, hospital_name, visit_date, diagnosis, treatment
+            FROM medical_records
+            WHERE patient_id = :pid
+            ORDER BY visit_date DESC, id DESC
+            LIMIT 5
+        ");
+        $stmt_recent_records->execute(['pid' => $selected_id]);
+        $recent_records = $stmt_recent_records->fetchAll(PDO::FETCH_ASSOC);
+
+        $stmt_recent_prescriptions = $pdo->prepare("
+            SELECT medication_name, dosage, frequency
+            FROM medication_prescriptions
+            WHERE patient_id = :pid
+            ORDER BY id DESC
+            LIMIT 5
+        ");
+        $stmt_recent_prescriptions->execute(['pid' => $selected_id]);
+        $recent_prescriptions = $stmt_recent_prescriptions->fetchAll(PDO::FETCH_ASSOC);
+    }
+}
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $patient_id  = (int)($_POST['patient_id'] ?? 0);
-    $form_type   = $_POST['form_type'] ?? '';
+    $patient_id = (int)($_POST['patient_id'] ?? 0);
+    $form_type  = $_POST['form_type'] ?? '';
 
-    // Verify this patient is actually approved
+    // Verify the doctor has approved access to this patient (assigned by admin)
     $stmt_verify = $pdo->prepare("
-        SELECT id FROM access_requests
-        WHERE doctor_name = :dname AND patient_id = :pid AND request_status = 'approved'
+        SELECT ar.id
+        FROM access_requests ar
+        JOIN doctors d ON d.name = ar.doctor_name
+        WHERE d.id = :did
+          AND ar.patient_id = :pid
+          AND ar.request_status = 'approved'
+          AND ar.records_sent = 1
+        LIMIT 1
     ");
-    $stmt_verify->execute(['dname' => $doctor_name, 'pid' => $patient_id]);
+    $stmt_verify->execute(['did' => $doctor_id, 'pid' => $patient_id]);
     $allowed = $stmt_verify->fetch();
 
     if (!$allowed) {
-        $error_msg = "You do not have approved access to this patient.";
+        $error_msg = "Access Denied: You do not have approved access to this patient.";
     } elseif ($form_type === 'medical_record') {
-        $visit_type    = trim($_POST['visit_type'] ?? '');
+        $visit_type    = trim($_POST['visit_type']    ?? '');
         $hospital_name = trim($_POST['hospital_name'] ?? '');
-        $visit_date    = trim($_POST['visit_date'] ?? '');
-        $notes         = trim($_POST['notes'] ?? '');
-        $diagnosis     = trim($_POST['diagnosis'] ?? '');
-        $treatment     = trim($_POST['treatment'] ?? '');
+        $visit_date    = trim($_POST['visit_date']    ?? '');
+        $notes         = trim($_POST['notes']         ?? '');
+        $diagnosis     = trim($_POST['diagnosis']     ?? '');
+        $treatment     = trim($_POST['treatment']     ?? '');
 
         if (empty($visit_type) || empty($hospital_name) || empty($visit_date)) {
             $error_msg = "Please fill in all required fields.";
@@ -61,16 +114,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'notes'    => $notes,
                 'doc'      => $doctor_name,
                 'diag'     => $diagnosis,
-                'treat'    => $treatment
+                'treat'    => $treatment,
             ]);
             $success_msg = "Medical record added successfully.";
         }
     } elseif ($form_type === 'prescription') {
         $medication_name = trim($_POST['medication_name'] ?? '');
-        $dosage          = trim($_POST['dosage'] ?? '');
-        $frequency       = trim($_POST['frequency'] ?? '');
-        $duration        = trim($_POST['duration'] ?? '');
-        $notes           = trim($_POST['presc_notes'] ?? '');
+        $dosage          = trim($_POST['dosage']          ?? '');
+        $frequency       = trim($_POST['frequency']       ?? '');
+        $duration        = trim($_POST['duration']        ?? '');
+        $notes           = trim($_POST['presc_notes']     ?? '');
 
         if (empty($medication_name) || empty($dosage) || empty($frequency)) {
             $error_msg = "Please fill in all required prescription fields.";
@@ -80,36 +133,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 VALUES (:pid, :mname, :dosage, :freq, :dur, :notes, :doc)
             ");
             $stmt_presc->execute([
-                'pid'    => $patient_id,
-                'mname'  => $medication_name,
-                'dosage' => $dosage,
-                'freq'   => $frequency,
-                'dur'    => $duration,
-                'notes'  => $notes,
-                'doc'    => $doctor_name,
+                'pid'   => $patient_id,
+                'mname' => $medication_name,
+                'dosage'=> $dosage,
+                'freq'  => $frequency,
+                'dur'   => $duration,
+                'notes' => $notes,
+                'doc'   => $doctor_name,
             ]);
             $success_msg = "Prescription added successfully.";
         }
-    }
-}
-
-$selected_id      = (int)($_GET['patient_id'] ?? $_POST['patient_id'] ?? 0);
-$selected_patient = null;
-$recent_records   = [];
-$recent_prescriptions = [];
-
-if ($selected_id) {
-    foreach ($approved_patients as $ap) {
-        if ($ap['id'] === $selected_id) { $selected_patient = $ap; break; }
-    }
-    if ($selected_patient) {
-        $stmt_rec = $pdo->prepare("SELECT * FROM medical_records WHERE patient_id = :pid ORDER BY visit_date DESC LIMIT 5");
-        $stmt_rec->execute(['pid' => $selected_id]);
-        $recent_records = $stmt_rec->fetchAll(PDO::FETCH_ASSOC);
-
-        $stmt_presc = $pdo->prepare("SELECT * FROM medication_prescriptions WHERE patient_id = :pid ORDER BY id DESC LIMIT 5");
-        $stmt_presc->execute(['pid' => $selected_id]);
-        $recent_prescriptions = $stmt_presc->fetchAll(PDO::FETCH_ASSOC);
     }
 }
 ?>
@@ -153,92 +186,198 @@ if ($selected_id) {
         .preview-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 22px 24px; }
         .record-item { padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 0.83rem; }
         .disabled-overlay { opacity: 0.45; pointer-events: none; }
+        .empty-state { text-align: center; padding: 40px; color: #94a3b8; }
     </style>
 </head>
 <body>
+
 <div class="sidebar">
     <div class="sidebar-brand">
         <div class="icon-box"><i class="fa-solid fa-stethoscope"></i></div>
-        <div class="brand-label"><strong>Practitioner</strong><small>Portal</small></div>
+        <div class="brand-label">
+            <strong>Dr. <?php echo htmlspecialchars($doctor['name'] ?? $doctor_name); ?></strong>
+            <small><?php echo htmlspecialchars($doctor_specialty); ?></small>
+        </div>
     </div>
-    <a href="dashboard.php" class="nav-link-custom"><i class="fa-solid fa-magnifying-glass"></i> Request Data</a>
-    <a href="my_patients.php" class="nav-link-custom"><i class="fa-solid fa-users"></i> My Patients</a>
-    <a href="update_records.php" class="nav-link-custom active"><i class="fa-solid fa-pen-to-square"></i> Update Records</a>
-    <a href="logout.php" class="sign-out"><i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out</a>
+
+    <a href="dashboard.php" class="nav-link-custom">
+        <i class="fa-solid fa-house"></i> Dashboard Overview
+    </a>
+    <a href="my_patients.php" class="nav-link-custom">
+        <i class="fa-solid fa-users"></i> My Patients
+    </a>
+    <a href="update_records.php" class="nav-link-custom active">
+        <i class="fa-solid fa-pen-to-square"></i> Update Records
+    </a>
+
+    <a href="logout.php" class="sign-out">
+        <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign Out
+    </a>
 </div>
 
 <div class="main-content">
-    <div class="page-header"><h2>Update Records</h2></div>
+    <div class="page-header">
+        <h2>Update Records</h2>
+        <p style="color:#64748b; font-size:0.85rem; margin-top:3px;">
+            Add medical records or prescriptions for your assigned patients.
+        </p>
+    </div>
 
-    <?php if ($success_msg): ?><div class="alert-custom alert-success"><?php echo $success_msg; ?></div><?php endif; ?>
-    <?php if ($error_msg): ?><div class="alert-custom alert-error"><?php echo $error_msg; ?></div><?php endif; ?>
+    <?php if ($success_msg): ?>
+        <div class="alert-custom alert-success"><i class="fa-solid fa-circle-check" style="margin-right:6px;"></i><?php echo htmlspecialchars($success_msg); ?></div>
+    <?php endif; ?>
+    <?php if ($error_msg): ?>
+        <div class="alert-custom alert-error"><i class="fa-solid fa-circle-xmark" style="margin-right:6px;"></i><?php echo htmlspecialchars($error_msg); ?></div>
+    <?php endif; ?>
 
+    <!-- Patient Selector -->
     <div class="selector-card">
+        <label style="font-size:0.82rem; font-weight:600; color:#475569; display:block; margin-bottom:8px;">
+            <i class="fa-solid fa-user" style="color:#0e7490; margin-right:6px;"></i> Select a Patient
+        </label>
+        <?php if (!empty($approved_patients)): ?>
         <form method="GET">
             <select name="patient_id" class="patient-select" onchange="this.form.submit()">
                 <option value="">— Select Patient —</option>
                 <?php foreach ($approved_patients as $ap): ?>
                     <option value="<?php echo $ap['id']; ?>" <?php echo $selected_id == $ap['id'] ? 'selected' : ''; ?>>
-                        <?php echo htmlspecialchars($ap['name']); ?> (<?php echo htmlspecialchars($ap['national_id']); ?>)
+                        <?php echo htmlspecialchars($ap['name']); ?> (NID: <?php echo htmlspecialchars($ap['national_id']); ?>)
                     </option>
                 <?php endforeach; ?>
             </select>
         </form>
+        <?php else: ?>
+            <div class="empty-state" style="padding:20px 0;">
+                <i class="fa-solid fa-user-slash" style="font-size:1.5rem; color:#e2e8f0; display:block; margin-bottom:8px;"></i>
+                <p style="font-size:0.85rem;">No patients have been assigned to you yet.<br>
+                <span style="font-size:0.8rem; color:#94a3b8;">The hospital admin will assign patients and send their medical records to you.</span></p>
+            </div>
+        <?php endif; ?>
     </div>
 
+    <!-- Forms (disabled until patient selected) -->
     <div class="forms-grid <?php echo !$selected_patient ? 'disabled-overlay' : ''; ?>">
+        <!-- Medical Record Form -->
         <div class="form-card">
-            <h5>Add Medical Record</h5>
+            <h5 style="font-size:0.95rem; font-weight:600; color:#0f172a; margin-bottom:18px;">
+                <i class="fa-solid fa-file-medical" style="color:#0e7490; margin-right:8px;"></i> Add Medical Record
+            </h5>
             <form method="POST">
                 <input type="hidden" name="form_type" value="medical_record">
                 <input type="hidden" name="patient_id" value="<?php echo $selected_id; ?>">
-                <div class="field"><label>Visit Type</label><select name="visit_type"><option>Consultation</option><option>Follow-up</option></select></div>
-                <div class="field"><label>Hospital</label><input type="text" name="hospital_name"></div>
-                <div class="field"><label>Date</label><input type="date" name="visit_date"></div>
-                <div class="field"><label>Diagnosis</label><textarea name="diagnosis"></textarea></div>
-                <div class="field"><label>Treatment</label><textarea name="treatment"></textarea></div>
-                <div class="field"><label>Notes</label><textarea name="notes"></textarea></div>
-                <button type="submit" class="btn-submit">Add Record</button>
+                <div class="field">
+                    <label>Visit Type <span style="color:#dc2626;">*</span></label>
+                    <select name="visit_type">
+                        <option value="Consultation">Consultation</option>
+                        <option value="Follow-up">Follow-up</option>
+                        <option value="Emergency">Emergency</option>
+                        <option value="Routine Check-up">Routine Check-up</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>Hospital / Facility <span style="color:#dc2626;">*</span></label>
+                    <input type="text" name="hospital_name" placeholder="e.g. Nairobi General Hospital">
+                </div>
+                <div class="field">
+                    <label>Visit Date <span style="color:#dc2626;">*</span></label>
+                    <input type="date" name="visit_date" value="<?php echo date('Y-m-d'); ?>">
+                </div>
+                <div class="field">
+                    <label>Diagnosis</label>
+                    <textarea name="diagnosis" rows="2" placeholder="Enter diagnosis..."></textarea>
+                </div>
+                <div class="field">
+                    <label>Treatment</label>
+                    <textarea name="treatment" rows="2" placeholder="Enter treatment plan..."></textarea>
+                </div>
+                <div class="field">
+                    <label>Notes</label>
+                    <textarea name="notes" rows="2" placeholder="Additional notes..."></textarea>
+                </div>
+                <button type="submit" class="btn-submit">
+                    <i class="fa-solid fa-plus" style="margin-right:6px;"></i> Add Record
+                </button>
             </form>
         </div>
+
+        <!-- Prescription Form -->
         <div class="form-card">
-            <h5>Add Prescription</h5>
+            <h5 style="font-size:0.95rem; font-weight:600; color:#0f172a; margin-bottom:18px;">
+                <i class="fa-solid fa-pills" style="color:#7c3aed; margin-right:8px;"></i> Add Prescription
+            </h5>
             <form method="POST">
                 <input type="hidden" name="form_type" value="prescription">
                 <input type="hidden" name="patient_id" value="<?php echo $selected_id; ?>">
-                <div class="field"><label>Medication</label><input type="text" name="medication_name"></div>
-                <div class="field"><label>Dosage</label><input type="text" name="dosage"></div>
-                <div class="field"><label>Frequency</label><input type="text" name="frequency"></div>
-                <div class="field"><label>Duration</label><input type="text" name="duration"></div>
-                <div class="field"><label>Notes</label><textarea name="presc_notes"></textarea></div>
-                <button type="submit" class="btn-submit presc">Add Prescription</button>
+                <div class="field">
+                    <label>Medication Name <span style="color:#dc2626;">*</span></label>
+                    <input type="text" name="medication_name" placeholder="e.g. Amoxicillin">
+                </div>
+                <div class="field">
+                    <label>Dosage <span style="color:#dc2626;">*</span></label>
+                    <input type="text" name="dosage" placeholder="e.g. 500mg">
+                </div>
+                <div class="field">
+                    <label>Frequency <span style="color:#dc2626;">*</span></label>
+                    <input type="text" name="frequency" placeholder="e.g. Twice daily">
+                </div>
+                <div class="field">
+                    <label>Duration</label>
+                    <input type="text" name="duration" placeholder="e.g. 7 days">
+                </div>
+                <div class="field">
+                    <label>Notes</label>
+                    <textarea name="presc_notes" rows="2" placeholder="Additional instructions..."></textarea>
+                </div>
+                <button type="submit" class="btn-submit presc">
+                    <i class="fa-solid fa-plus" style="margin-right:6px;"></i> Add Prescription
+                </button>
             </form>
         </div>
     </div>
 
+    <!-- Recent Records Preview (only when patient is selected) -->
     <?php if ($selected_patient): ?>
     <div class="preview-grid">
         <div class="preview-card">
-            <h6>Recent Medical Records</h6>
-            <?php foreach ($recent_records as $rec): ?>
+            <h6 style="font-size:0.88rem; font-weight:600; color:#0f172a; margin-bottom:14px;">
+                <i class="fa-solid fa-clock-rotate-left" style="color:#0e7490; margin-right:6px;"></i> Recent Medical Records
+            </h6>
+            <?php if (!empty($recent_records)): ?>
+                <?php foreach ($recent_records as $rec): ?>
                 <div class="record-item">
                     <strong><?php echo htmlspecialchars($rec['visit_type']); ?></strong><br>
-                    <small><?php echo htmlspecialchars($rec['visit_date']); ?> | <?php echo htmlspecialchars($rec['hospital_name']); ?></small>
-                    <p>Diag: <?php echo htmlspecialchars($rec['diagnosis']); ?><br>Treat: <?php echo htmlspecialchars($rec['treatment']); ?></p>
+                    <small style="color:#64748b;"><?php echo htmlspecialchars($rec['visit_date']); ?> &bull; <?php echo htmlspecialchars($rec['hospital_name']); ?></small>
+                    <?php if (!empty($rec['diagnosis'])): ?>
+                    <p style="margin-top:4px; color:#475569;">Diag: <?php echo htmlspecialchars($rec['diagnosis']); ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($rec['treatment'])): ?>
+                    <p style="color:#475569;">Treat: <?php echo htmlspecialchars($rec['treatment']); ?></p>
+                    <?php endif; ?>
                 </div>
-            <?php endforeach; ?>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p style="font-size:0.82rem; color:#94a3b8; text-align:center; padding:20px 0;">No medical records found.</p>
+            <?php endif; ?>
         </div>
+
         <div class="preview-card">
-            <h6>Recent Prescriptions</h6>
-            <?php foreach ($recent_prescriptions as $presc): ?>
+            <h6 style="font-size:0.88rem; font-weight:600; color:#0f172a; margin-bottom:14px;">
+                <i class="fa-solid fa-pills" style="color:#7c3aed; margin-right:6px;"></i> Recent Prescriptions
+            </h6>
+            <?php if (!empty($recent_prescriptions)): ?>
+                <?php foreach ($recent_prescriptions as $presc): ?>
                 <div class="record-item">
                     <strong><?php echo htmlspecialchars($presc['medication_name']); ?></strong><br>
-                    <small><?php echo htmlspecialchars($presc['dosage']); ?> - <?php echo htmlspecialchars($presc['frequency']); ?></small>
+                    <small style="color:#64748b;"><?php echo htmlspecialchars($presc['dosage']); ?> &bull; <?php echo htmlspecialchars($presc['frequency']); ?></small>
                 </div>
-            <?php endforeach; ?>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p style="font-size:0.82rem; color:#94a3b8; text-align:center; padding:20px 0;">No prescriptions found.</p>
+            <?php endif; ?>
         </div>
     </div>
     <?php endif; ?>
 </div>
+
 </body>
 </html>

@@ -6,84 +6,83 @@ if (!isset($_SESSION['doctor_id'])) {
 }
 require_once 'db.php';
 
-$doctor_id = $_SESSION['doctor_id'];
+$doctor_id   = $_SESSION['doctor_id'];
+$doctor_name = $_SESSION['doctor_name'];
 
-// Fetch doctor info
-$stmt = $pdo->prepare("SELECT * FROM doctors WHERE id = :id");
-$stmt->execute(['id' => $doctor_id]);
-$doctor = $stmt->fetch(PDO::FETCH_ASSOC);
-
-if (!$doctor) {
-    session_destroy();
-    header("Location: login.php");
-    exit();
+// Fetch doctor's specialty
+$doctor_specialty = 'Doctor';
+$specialtyStmt = $pdo->prepare("SELECT specialty FROM doctors WHERE id = :doctor_id LIMIT 1");
+$specialtyStmt->execute(['doctor_id' => $doctor_id]);
+$specialty = $specialtyStmt->fetchColumn();
+if (!empty($specialty)) {
+    $doctor_specialty = $specialty;
 }
 
-$success_msg = '';
-$error_msg = '';
+// Total patients assigned to this doctor (approved access)
+$stmtTotal = $pdo->prepare("
+    SELECT COUNT(DISTINCT ar.patient_id)
+    FROM access_requests ar
+    JOIN medical_records mr ON mr.patient_id = ar.patient_id
+    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+");
+$stmtTotal->execute(['dname' => $doctor_name]);
+$total_patients = (int) $stmtTotal->fetchColumn();
 
-// Handle "Request Data" form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['national_id'])) {
-    $national_id = trim($_POST['national_id']);
+// Total medical records sent to this doctor
+$stmtRecords = $pdo->prepare("
+    SELECT COUNT(*)
+    FROM medical_records mr
+    JOIN access_requests ar ON ar.patient_id = mr.patient_id
+    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+");
+$stmtRecords->execute(['dname' => $doctor_name]);
+$total_records = (int) $stmtRecords->fetchColumn();
 
-    if (!empty($national_id)) {
-        // Find patient by national_id
-        $stmt_pat = $pdo->prepare("SELECT id, name FROM patients WHERE national_id = :nid");
-        $stmt_pat->execute(['nid' => $national_id]);
-        $patient = $stmt_pat->fetch(PDO::FETCH_ASSOC);
+// New records received today
+$stmtNew = $pdo->prepare("
+    SELECT COUNT(*)
+    FROM medical_records mr
+    JOIN access_requests ar ON ar.patient_id = mr.patient_id
+    WHERE ar.doctor_name = :dname
+      AND ar.request_status = 'approved'
+      AND DATE(mr.created_at) = CURDATE()
+");
+$stmtNew->execute(['dname' => $doctor_name]);
+$new_today = (int) $stmtNew->fetchColumn();
 
-        if ($patient) {
-            // Check if a pending/approved request already exists (using doctor_name)
-            $stmt_check = $pdo->prepare("SELECT id FROM access_requests 
-                                         WHERE doctor_name = :dname AND patient_id = :pid 
-                                         AND request_status IN ('pending', 'approved')");
-            $stmt_check->execute(['dname' => $doctor['name'], 'pid' => $patient['id']]);
-            $existing = $stmt_check->fetch();
-
-            if ($existing) {
-                $error_msg = "A pending or approved request already exists for this patient.";
-            } else {
-                // Insert new access request
-                $stmt_ins = $pdo->prepare("INSERT INTO access_requests 
-                    (patient_id, doctor_name, medical_facility, request_status, requested_at)
-                    VALUES (:pid, :dname, :facility, 'pending', NOW())");
-                $stmt_ins->execute([
-                    'pid'      => $patient['id'],
-                    'dname'    => $doctor['name'],
-                    'facility' => $doctor['address'] ?? 'N/A',
-                ]);
-                $success_msg = "Access request sent to patient <strong>" . htmlspecialchars($patient['name']) . "</strong>. Awaiting approval.";
-            }
-        } else {
-            $error_msg = "No patient found with National ID: <strong>" . htmlspecialchars($national_id) . "</strong>.";
-        }
-    } else {
-        $error_msg = "Please enter a National ID.";
-    }
-}
-
-// Fetch recent patients this doctor has requested (with statuses)
-$stmt_recent = $pdo->prepare("
-    SELECT ar.id AS request_id, ar.request_status, ar.requested_at,
-           p.name AS patient_name, p.national_id, p.id AS patient_id
+// Recently received patient records (last 5)
+$stmtRecent = $pdo->prepare("
+    SELECT DISTINCT
+           p.id          AS patient_id,
+           p.name        AS patient_name,
+           p.national_id,
+           p.email       AS patient_email,
+           ar.requested_at,
+           (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
-    WHERE ar.doctor_name = :dname
+    JOIN medical_records mr ON mr.patient_id = p.id
+    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
     ORDER BY ar.requested_at DESC
-    LIMIT 10
+    LIMIT 5
 ");
-$stmt_recent->execute(['dname' => $doctor['name']]);
-$recent_patients = $stmt_recent->fetchAll(PDO::FETCH_ASSOC);
+$stmtRecent->execute(['dname' => $doctor_name]);
+$recent_patients = $stmtRecent->fetchAll(PDO::FETCH_ASSOC);
+
+// Today's date greeting
+$hour = (int) date('H');
+$greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good evening');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Practitioner Portal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | Practitioner Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             background-color: #f8fafc;
@@ -138,7 +137,7 @@ $recent_patients = $stmt_recent->fetchAll(PDO::FETCH_ASSOC);
             font-weight: 500;
             transition: background 0.15s, color 0.15s;
         }
-        .nav-link-custom:hover { background: #f1f5f9; color: #0e7490; }
+        .nav-link-custom:hover  { background: #f1f5f9; color: #0e7490; }
         .nav-link-custom.active { background: #0e7490; color: #ffffff; }
         .nav-link-custom i { width: 18px; text-align: center; }
 
@@ -156,132 +155,160 @@ $recent_patients = $stmt_recent->fetchAll(PDO::FETCH_ASSOC);
         }
         .sign-out:hover { background: #fee2e2; color: #dc2626; }
 
-        /* ── Main Content ── */
+        /* ── Main ── */
         .main-content {
             margin-left: 220px;
             padding: 40px 44px;
             min-height: 100vh;
         }
 
-        .page-header { margin-bottom: 32px; }
-        .page-header h2 { font-size: 1.55rem; font-weight: 700; color: #0f172a; }
-        .page-header p  { color: #64748b; font-size: 0.85rem; margin-top: 2px; }
+        .page-header { margin-bottom: 28px; }
+        .page-header h2 { font-size: 1.45rem; font-weight: 700; color: #0f172a; }
+        .page-header p  { color: #64748b; font-size: 0.85rem; margin-top: 3px; }
 
-        /* ── Request Card ── */
-        .card-custom {
-            background: #ffffff;
-            border: 1px solid #e2e8f0;
-            border-radius: 14px;
-            padding: 28px 30px;
+        /* ── Stat Cards ── */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
             margin-bottom: 28px;
         }
-        .card-custom h5 {
-            font-size: 1rem;
-            font-weight: 600;
-            color: #0f172a;
-            margin-bottom: 6px;
-        }
-        .card-custom p.subtitle {
-            font-size: 0.82rem;
-            color: #94a3b8;
-            margin-bottom: 20px;
-        }
 
-        .request-row {
-            display: flex;
-            gap: 12px;
-            align-items: center;
-        }
-        .request-row input[type="text"] {
-            flex: 1;
-            padding: 10px 16px;
+        .stat-card {
+            background: #fff;
             border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            font-size: 0.88rem;
-            color: #334155;
-            background: #f8fafc;
-            outline: none;
-            transition: border 0.15s;
+            border-radius: 12px;
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-decoration: none;
+            transition: box-shadow 0.15s, border-color 0.15s;
         }
-        .request-row input[type="text"]:focus { border-color: #0e7490; background: #fff; }
-        .request-row input[type="text"]::placeholder { color: #b0bec5; }
+        .stat-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.07); border-color: #cbd5e1; }
+        .stat-card.active-filter { border-color: #0e7490; box-shadow: 0 0 0 3px rgba(14,116,144,0.1); }
 
-        .btn-request {
-            background: #0e7490;
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            padding: 10px 22px;
-            font-size: 0.88rem;
-            font-weight: 600;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: background 0.15s;
-        }
-        .btn-request:hover { background: #0b6070; }
-
-        /* ── Alerts ── */
-        .alert-custom {
-            padding: 12px 16px;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            margin-bottom: 18px;
-        }
-        .alert-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
-        .alert-error   { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
-
-        /* ── Recent Patients ── */
-        .section-title {
+        .stat-icon {
+            width: 42px; height: 42px;
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
             font-size: 1rem;
-            font-weight: 600;
-            color: #0f172a;
-            margin-bottom: 16px;
+            flex-shrink: 0;
+        }
+        .stat-icon.all      { background: #f1f5f9; color: #475569; }
+        .stat-icon.approved { background: #dcfce7; color: #16a34a; }
+        .stat-icon.pending  { background: #fef9c3; color: #ca8a04; }
+        .stat-icon.declined { background: #fee2e2; color: #dc2626; }
+
+        .stat-info span { font-size: 0.75rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; display: block; }
+        .stat-info strong { font-size: 1.4rem; font-weight: 700; color: #0f172a; }
+
+        /* ── Table Card ── */
+        .table-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            overflow: hidden;
         }
 
-        .patient-row {
+        .table-card-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid #f1f5f9;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 15px 0;
+        }
+
+        .table-card-header h5 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #0f172a;
+            margin: 0;
+        }
+
+        .results-count {
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        thead tr { background: #f8fafc; }
+        thead th {
+            padding: 12px 20px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
             border-bottom: 1px solid #f1f5f9;
+            white-space: nowrap;
         }
-        .patient-row:last-child { border-bottom: none; }
 
-        .patient-info strong { font-size: 0.92rem; color: #0f172a; display: block; }
-        .patient-info small  { font-size: 0.78rem; color: #94a3b8; }
-
-        .patient-meta {
-            display: flex;
-            align-items: center;
-            gap: 16px;
+        tbody tr {
+            border-bottom: 1px solid #f8fafc;
+            transition: background 0.1s;
         }
-        .last-seen { font-size: 0.78rem; color: #94a3b8; white-space: nowrap; }
+        tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: #f8fafc; }
+
+        tbody td {
+            padding: 14px 20px;
+            font-size: 0.875rem;
+            color: #334155;
+            vertical-align: middle;
+        }
+
+        .patient-name { font-weight: 600; color: #0f172a; display: block; }
+        .patient-nid  { font-size: 0.78rem; color: #94a3b8; }
 
         /* Status badges */
         .badge-status {
-            font-size: 0.72rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.75rem;
             font-weight: 600;
             padding: 4px 12px;
             border-radius: 20px;
-            text-transform: capitalize;
+        }
+        .badge-status.approved { background: #dcfce7; color: #16a34a; }
+        .badge-status.pending  { background: #fef9c3; color: #ca8a04; }
+        .badge-status.declined { background: #fee2e2; color: #dc2626; }
+
+        /* View Records button */
+        .btn-records {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #0e7490;
+            color: #fff;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.15s;
             white-space: nowrap;
         }
-        .badge-pending  { background: #fef9c3; color: #854d0e; }
-        .badge-approved { background: #dcfce7; color: #166534; }
-        .badge-declined { background: #fee2e2; color: #991b1b; }
+        .btn-records:hover { background: #0b5f75; color: #fff; }
 
-        /* Empty state */
+        /* Empty */
         .empty-state {
             text-align: center;
-            padding: 40px 20px;
+            padding: 56px 20px;
             color: #94a3b8;
-            font-size: 0.88rem;
         }
-        .empty-state i { font-size: 2rem; margin-bottom: 10px; display: block; color: #cbd5e1; }
+        .empty-state i { font-size: 2.2rem; display: block; margin-bottom: 12px; color: #e2e8f0; }
+        .empty-state p { font-size: 0.88rem; }
 
+        @media (max-width: 900px) {
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
+        }
         @media (max-width: 768px) {
             .sidebar { display: none; }
             .main-content { margin-left: 0; padding: 24px 18px; }
+            .stats-row { grid-template-columns: repeat(2, 1fr); }
         }
     </style>
 </head>
@@ -292,17 +319,19 @@ $recent_patients = $stmt_recent->fetchAll(PDO::FETCH_ASSOC);
     <div class="sidebar-brand">
         <div class="icon-box"><i class="fa-solid fa-stethoscope"></i></div>
         <div class="brand-label">
-            <strong>Practitioner</strong>
-            <small>Portal Panel</small>
+            <strong>Dr. <?php echo htmlspecialchars($doctor_name); ?></strong>
+            <small><?php echo htmlspecialchars($doctor_specialty); ?></small>
         </div>
     </div>
 
     <a href="dashboard.php" class="nav-link-custom active">
-        <i class="fa-solid fa-magnifying-glass"></i> Request Patient Data
+        <i class="fa-solid fa-house"></i> Dashboard overview
     </a>
+
     <a href="my_patients.php" class="nav-link-custom">
         <i class="fa-solid fa-users"></i> My Patients
     </a>
+
     <a href="update_records.php" class="nav-link-custom">
         <i class="fa-solid fa-pen-to-square"></i> Update Records
     </a>
@@ -317,78 +346,95 @@ $recent_patients = $stmt_recent->fetchAll(PDO::FETCH_ASSOC);
 
     <!-- Header -->
     <div class="page-header">
-        <h2>Dr. <?php echo htmlspecialchars($doctor['name']); ?></h2>
-        <p>Physician ID: MD-<?php echo str_pad($doctor['id'], 4, '0', STR_PAD_LEFT) . '-' . date('Y', strtotime($doctor['created_at'])); ?></p>
+        <h2><?php echo $greeting; ?>, Dr. <?php echo htmlspecialchars($doctor_name); ?> </h2>
+        <p><?php echo date('l, F j, Y'); ?> &mdash; Here's your practice overview for today.</p>
     </div>
 
-    <!-- Alerts -->
-    <?php if ($success_msg): ?>
-        <div class="alert-custom alert-success"><i class="fa-solid fa-circle-check me-2"></i><?php echo $success_msg; ?></div>
-    <?php endif; ?>
-    <?php if ($error_msg): ?>
-        <div class="alert-custom alert-error"><i class="fa-solid fa-circle-exclamation me-2"></i><?php echo $error_msg; ?></div>
-    <?php endif; ?>
-
-    <!-- Request Patient Summary Card -->
-    <div class="card-custom">
-        <h5><i class="fa-solid fa-magnifying-glass me-2" style="color:#0e7490;"></i> Request Patient Summary</h5>
-        <p class="subtitle">Request patient data from the system using their National ID</p>
-
-        <form method="POST" action="dashboard.php">
-            <div class="request-row">
-                <input
-                    type="text"
-                    name="national_id"
-                    placeholder="Enter Patient National ID (e.g., 12345678)"
-                    value="<?php echo isset($_POST['national_id']) ? htmlspecialchars($_POST['national_id']) : ''; ?>"
-                    autocomplete="off"
-                >
-                <button type="submit" class="btn-request">
-                    <i class="fa-solid fa-paper-plane me-1"></i> Request Data
-                </button>
+    <!-- Stat Cards -->
+    <div class="stats-row">
+        <a href="my_patients.php" class="stat-card">
+            <div class="stat-icon all"><i class="fa-solid fa-users"></i></div>
+            <div class="stat-info">
+                <span>My Patients</span>
+                <strong><?php echo $total_patients; ?></strong>
             </div>
-        </form>
+        </a>
+        <a href="my_patients.php" class="stat-card">
+            <div class="stat-icon approved"><i class="fa-solid fa-file-medical"></i></div>
+            <div class="stat-info">
+                <span>Total Records</span>
+                <strong><?php echo $total_records; ?></strong>
+            </div>
+        </a>
+        <div class="stat-card">
+            <div class="stat-icon pending"><i class="fa-solid fa-file-circle-plus"></i></div>
+            <div class="stat-info">
+                <span>New Today</span>
+                <strong><?php echo $new_today; ?></strong>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon all"><i class="fa-solid fa-calendar-day"></i></div>
+            <div class="stat-info">
+                <span>Today's Date</span>
+                <strong style="font-size:1rem;"><?php echo date('d M Y'); ?></strong>
+            </div>
+        </div>
     </div>
 
-    <!-- Recent Patients -->
-    <div class="card-custom">
-        <div class="section-title">Recent Patients</div>
+    <!-- Recent Patients Table -->
+    <div class="table-card">
+        <div class="table-card-header">
+            <h5><i class="fa-solid fa-clock-rotate-left" style="color:#0e7490; margin-right:8px;"></i> Recently Assigned Patients</h5>
+            <a href="my_patients.php" class="results-count" style="color:#0e7490; font-weight:600; text-decoration:none;">View all &rarr;</a>
+        </div>
 
         <?php if (!empty($recent_patients)): ?>
-            <?php foreach ($recent_patients as $rp):
-                $status    = strtolower($rp['request_status']);
-                $badge_cls = match($status) {
-                    'approved' => 'badge-approved',
-                    'declined' => 'badge-declined',
-                    default    => 'badge-pending',
-                };
-                $label = match($status) {
-                    'approved' => 'Approved',
-                    'declined' => 'Declined',
-                    default    => 'Pending',
-                };
-                $date_fmt = date('Y-m-d', strtotime($rp['requested_at']));
-            ?>
-            <div class="patient-row">
-                <div class="patient-info">
-                    <strong><?php echo htmlspecialchars($rp['patient_name']); ?></strong>
-                    <small>NID: <?php echo htmlspecialchars($rp['national_id']); ?></small>
-                </div>
-                <div class="patient-meta">
-                    <span class="last-seen">Requested: <?php echo $date_fmt; ?></span>
-                    <span class="badge-status <?php echo $badge_cls; ?>"><?php echo $label; ?></span>
-                </div>
-            </div>
-            <?php endforeach; ?>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Patient</th>
+                    <th>Email</th>
+                    <th>Assigned On</th>
+                    <th>Records</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php $i = 1; foreach ($recent_patients as $row): ?>
+                <tr>
+                    <td style="color:#94a3b8; font-size:0.8rem;"><?php echo $i++; ?></td>
+                    <td>
+                        <span class="patient-name"><?php echo htmlspecialchars($row['patient_name']); ?></span>
+                        <span class="patient-nid">NID: <?php echo htmlspecialchars($row['national_id']); ?></span>
+                    </td>
+                    <td><?php echo htmlspecialchars($row['patient_email']); ?></td>
+                    <td><?php echo date('M d, Y', strtotime($row['requested_at'])); ?></td>
+                    <td>
+                        <span class="badge-status approved">
+                            <i class="fa-solid fa-file-medical"></i> <?php echo $row['record_count']; ?> file<?php echo $row['record_count'] != 1 ? 's' : ''; ?>
+                        </span>
+                    </td>
+                    <td>
+                        <a href="patient_records.php?patient_id=<?php echo $row['patient_id']; ?>" class="btn-records">
+                            <i class="fa-solid fa-file-medical"></i> View Records
+                        </a>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
         <?php else: ?>
             <div class="empty-state">
                 <i class="fa-solid fa-user-slash"></i>
-                No patient requests yet. Enter a National ID above to get started.
+                <p>No patients have been assigned to you yet.<br>
+                <span style="color:#94a3b8; font-size:0.82rem;">The hospital admin will assign patients and send their records to you.</span></p>
             </div>
         <?php endif; ?>
     </div>
 
-</div><!-- /main-content -->
+</div>
 
 </body>
 </html>

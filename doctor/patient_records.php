@@ -16,10 +16,10 @@ if (!$patient_id) {
     exit();
 }
 
-// Security: confirm this doctor has an APPROVED request for this patient
+// Security: confirm this doctor has an APPROVED request for this patient and records are sent
 $access_stmt = $pdo->prepare("
     SELECT id FROM access_requests
-    WHERE doctor_name = ? AND patient_id = ? AND request_status = 'approved'
+    WHERE doctor_name = ? AND patient_id = ? AND request_status = 'approved' AND records_sent = 1
     LIMIT 1
 ");
 $access_stmt->execute([$doctor_name, $patient_id]);
