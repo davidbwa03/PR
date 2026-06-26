@@ -12,24 +12,9 @@ $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Admini
 $success_msg = "";
 $error_msg = "";
 
-// Handle approve / decline actions
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['approve_request'])) {
-        $request_id = (int)$_POST['request_id'];
-        if ($request_id > 0) {
-            $stmt = $pdo->prepare("UPDATE access_requests SET request_status = 'approved', updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$request_id]);
-            $success_msg = "Request approved. You can now send the records from the \"Send Records to Doctors\" page.";
-        }
-    } elseif (isset($_POST['decline_request'])) {
-        $request_id = (int)$_POST['request_id'];
-        if ($request_id > 0) {
-            $stmt = $pdo->prepare("UPDATE access_requests SET request_status = 'declined', updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$request_id]);
-            $success_msg = "Request declined.";
-        }
-    }
-}
+// NOTE: Staff can no longer approve or decline requests here.
+// Only the patient can approve/decline their own data request (handled on the patient portal).
+// This page is now read-only for staff: it just shows the current status of every request.
 
 // Fetch all requests, joined with patient details
 try {
@@ -129,7 +114,7 @@ function statusBadge($status) {
     <main class="workspace">
         <div class="hospital-header">
             <h2>Patient Data Requests</h2>
-            <p>Review incoming record requests from doctors and other facilities</p>
+            <p>View the status of record requests — approval or decline is made by the patient</p>
         </div>
 
         <?php if (!empty($success_msg)): ?>
@@ -181,26 +166,21 @@ function statusBadge($status) {
                     <p class="pr-meta"><span>Requested On:</span> <?= htmlspecialchars($req['requested_at']); ?></p>
                     <p class="pr-meta"><span>Status:</span> <?= htmlspecialchars($badge['label']); ?></p>
 
-                    <?php if ($statusLower === 'approved'): ?>
+                    <?php if ($statusLower === 'pending'): ?>
+                        <div class="alert alert-warning mt-3 mb-0">Waiting on the patient to approve or decline this request.</div>
+                    <?php elseif ($statusLower === 'declined'): ?>
+                        <div class="alert alert-secondary mt-3 mb-0">The patient declined this request. No further action is needed here.</div>
+                    <?php elseif ($statusLower === 'approved'): ?>
                         <?php if ((int)$req['records_sent'] === 1): ?>
                             <div class="alert alert-success mt-3 mb-0">Records already sent to the doctor.</div>
                         <?php else: ?>
-                            <div class="alert alert-warning mt-3 mb-0">Approved — go to <strong>Send Records to Doctors</strong> to dispatch this patient's records.</div>
+                            <div class="alert alert-success mt-3 mb-0">The patient approved this request — go to <strong>Send Records to Doctors</strong> to dispatch the records.</div>
                         <?php endif; ?>
                     <?php endif; ?>
                   </div>
-                  <?php if ($statusLower === 'pending'): ?>
                   <div class="modal-footer">
-                    <form method="POST" class="d-inline">
-                        <input type="hidden" name="request_id" value="<?= (int)$req['id']; ?>">
-                        <button type="submit" name="decline_request" class="btn btn-outline-danger">Decline</button>
-                    </form>
-                    <form method="POST" class="d-inline">
-                        <input type="hidden" name="request_id" value="<?= (int)$req['id']; ?>">
-                        <button type="submit" name="approve_request" class="btn btn-primary" style="background-color: var(--teal-accent); border:none;">Approve</button>
-                    </form>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                   </div>
-                  <?php endif; ?>
                 </div>
               </div>
             </div>
