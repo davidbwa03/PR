@@ -62,21 +62,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="w-100">
             <div class="sidebar-brand">
                 <div class="brand-avatar">H</div>
-                <div class="brand-title">
-                    <h1>Hospital Admin</h1>
-                    <span>Portal</span>
-                </div>
+                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link">Overview</a>
+                <a href="patient_requests.php" class="menu-link">Patient Requests</a>
+                <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
                 <a href="add_practitioner.php" class="menu-link active">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link">Analytics</a>
             </div>
         </div>
-        <div>
-            <a href="logout.php" class="logout-link">Sign Out</a>
-        </div>
+        <div><a href="logout.php" class="logout-link">Sign Out</a></div>
     </nav>
 
     <main class="workspace">

@@ -21,7 +21,7 @@ if (!$user) {
 $real_id = $user['id'];
 
 // Fetch pending requests
-$stmt_req = $pdo->prepare("SELECT id, doctor_name, medical_facility, requested_at 
+$stmt_req = $pdo->prepare("SELECT id, doctor_name AS hospital_admin_name, medical_facility, requested_at 
                            FROM access_requests 
                            WHERE patient_id = :pid AND request_status = 'pending' 
                            ORDER BY requested_at DESC");
@@ -69,13 +69,13 @@ $requests = $stmt_req->fetchAll(PDO::FETCH_ASSOC);
     <p class="text-muted">National ID: <?php echo htmlspecialchars($user['national_id'] ?? 'Not Set'); ?></p>
 
     <section class="card-custom border-warning" style="border-left: 5px solid #eab308;">
-        <h5><i class="fa-solid fa-user-doctor text-warning me-2"></i> Incoming Doctor Access Requests</h5>
+        <h5><i class="fa-solid fa-user-doctor text-warning me-2"></i> Incoming Hospital Admin Access Requests</h5>
         
         <?php if (!empty($requests)): ?>
             <?php foreach ($requests as $req): ?>
                 <div class="request-item">
                     <div>
-                        <strong>Dr. <?php echo htmlspecialchars($req['doctor_name'] ?? 'Unknown Doctor'); ?></strong><br>
+                        <strong>Hospital Admin: <?php echo htmlspecialchars($req['hospital_admin_name'] ?? 'Unknown Admin'); ?></strong><br>
                         <small class="text-muted"><?php echo htmlspecialchars($req['medical_facility'] ?? 'No facility provided'); ?></small>
                     </div>
                     <form action="process_access.php" method="POST">

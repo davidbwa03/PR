@@ -12,6 +12,7 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
 // Extract authenticated session attributes safely
 $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Administrator';
 $success_msg = "";
+$error_msg = "";
 $system_uptime = "99.9%";
 
 // Handle POST submissions
@@ -19,12 +20,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // New Feature: Request Patient Summary
     if (isset($_POST['request_summary'])) {
         $patient_id_input = trim($_POST['patient_id_input'] ?? '');
-        $patient_id = preg_replace('/[^0-9]/', '', $patient_id_input);
+        $patient_id = null;
+        $patient_ref_match = [];
+
+        if (preg_match('/^PT-\d{4}-(\d+)$/i', $patient_id_input, $patient_ref_match)) {
+            $patient_id = (int)$patient_ref_match[1];
+        } elseif (ctype_digit($patient_id_input)) {
+            $patient_id = (int)$patient_id_input;
+        }
         
-        if (!empty($patient_id)) {
-            $stmt = $pdo->prepare("INSERT INTO access_requests (patient_id, doctor_name, medical_facility, request_status, requested_at) VALUES (?, ?, ?, 'pending', NOW())");
-            $stmt->execute([$patient_id, $staff_name, 'System Request']);
-            $success_msg = "Summary request for " . htmlspecialchars($patient_id_input) . " has been initiated.";
+        if (!empty($patient_id_input)) {
+            if ($patient_id !== null && $patient_id > 0) {
+                $stmt_patient = $pdo->prepare("SELECT id FROM patients WHERE id = ? LIMIT 1");
+                $stmt_patient->execute([$patient_id]);
+            } else {
+                $stmt_patient = $pdo->prepare("SELECT id FROM patients WHERE national_id = ? OR email = ? LIMIT 1");
+                $stmt_patient->execute([$patient_id_input, $patient_id_input]);
+            }
+
+            $resolved_patient_id = $stmt_patient->fetchColumn();
+
+            if ($resolved_patient_id) {
+                $stmt = $pdo->prepare("INSERT INTO access_requests (patient_id, doctor_name, medical_facility, request_status, requested_at) VALUES (?, ?, ?, 'pending', NOW())");
+                $stmt->execute([(int)$resolved_patient_id, $staff_name, 'System Request']);
+                $success_msg = "Summary request for " . htmlspecialchars($patient_id_input) . " has been initiated.";
+            } else {
+                $error_msg = "No patient matched the provided reference. Use Patient DB ID, National ID, or Email.";
+            }
         }
     }
     // Existing: Data request
@@ -144,6 +166,8 @@ try {
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link active">Overview</a>
+                <a href="patient_requests.php" class="menu-link">Patient Requests</a>
+                <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
                 <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link">Analytics</a>
@@ -161,13 +185,16 @@ try {
         <?php if (!empty($success_msg)): ?>
             <div class="alert alert-info mb-4"><?= htmlspecialchars($success_msg); ?></div>
         <?php endif; ?>
+        <?php if (!empty($error_msg)): ?>
+            <div class="alert alert-danger mb-4"><?= htmlspecialchars($error_msg); ?></div>
+        <?php endif; ?>
 
         <div class="panel-card mb-4">
             <h2 class="panel-title">Request Patient Summary</h2>
             <p class="panel-subtitle">Request patient data from insurance system and other hospitals</p>
             <form action="dashboard.php" method="POST" class="row g-3">
                 <div class="col-md-10">
-                    <input type="text" name="patient_id_input" class="form-control" placeholder="Enter Patient ID (e.g., PT-2024-5619)" required>
+                    <input type="text" name="patient_id_input" class="form-control" placeholder="Enter Patient DB ID, National ID, Email, or PT-YYYY-ID" required>
                 </div>
                 <div class="col-md-2">
                     <button type="submit" name="request_summary" class="btn btn-primary w-100" style="background-color: var(--teal-accent); border: none;">Request Data</button>

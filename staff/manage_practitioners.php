@@ -48,6 +48,7 @@ $doctors = $pdo->query($doctorQuery)->fetchAll(PDO::FETCH_ASSOC);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Practitioners - Central Medical Center</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
         :root { --sidebar-width: 260px; --main-bg: #f4f6f8; --sidebar-bg: #ffffff; --text-main: #1e293b; --text-sub: #64748b; --teal-accent: #107c91; --border-light: #e2e8f0; }
         body { background-color: var(--main-bg); font-family: system-ui, sans-serif; color: var(--text-main); }
@@ -61,42 +62,56 @@ $doctors = $pdo->query($doctorQuery)->fetchAll(PDO::FETCH_ASSOC);
         .logout-link { color: var(--text-sub); text-decoration: none; font-size: 14px; font-weight: 600; padding: 12px 16px; }
         .workspace { margin-left: var(--sidebar-width); padding: 40px 48px; }
         .panel-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 10px; padding: 28px; }
+
+        /* Doctors Directory (new, additive only) */
+        .directory-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 14px; padding: 20px 24px; display: flex; align-items: center; gap: 16px; height: 100%; }
+        .directory-icon { width: 48px; height: 48px; background-color: #e6f7f5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--teal-accent); font-size: 18px; flex-shrink: 0; }
+        .directory-name { font-size: 15px; font-weight: 700; color: var(--text-main); margin: 0; }
+        .directory-specialty { font-size: 13px; color: var(--text-sub); margin: 2px 0 0; }
+        .directory-content { flex: 1; }
+        .directory-manage { margin-top: 10px; }
+        .directory-manage summary { cursor: pointer; list-style: none; font-size: 13px; font-weight: 600; color: var(--teal-accent); }
+        .directory-manage summary::-webkit-details-marker { display: none; }
     </style>
 </head>
 <body>
 
 <nav class="sidebar-container">
-    <div class="w-100">
-        <div class="sidebar-brand">
-            <div class="brand-avatar">H</div>
-            <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
+        <div class="w-100">
+            <div class="sidebar-brand">
+                <div class="brand-avatar">H</div>
+                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
+            </div>
+            <div class="sidebar-menu">
+                <a href="dashboard.php" class="menu-link">Overview</a>
+                <a href="patient_requests.php" class="menu-link">Patient Requests</a>
+                <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
+                <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
+                <a href="manage_practitioners.php" class="menu-link active">Manage Doctors</a>
+                <a href="analytics.php" class="menu-link">Analytics</a>
+            </div>
         </div>
-        <div class="sidebar-menu">
-            <a href="dashboard.php" class="menu-link">Dashboard</a>
-            <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
-            <a href="manage_practitioners.php" class="menu-link active">Manage Practitioners</a>
-            <a href="analytics.php" class="menu-link">Analytics</a>
-        </div>
-    </div>
-    <a href="logout.php" class="logout-link">Sign Out</a>
-</nav>
+        <div><a href="logout.php" class="logout-link">Sign Out</a></div>
+    </nav>
 
 <main class="workspace">
-    <h2 class="mb-4">Manage Practitioners</h2>
+    <h2 class="mb-4">Doctors Directory</h2>
     <?php if ($statusMessage): ?>
         <div class="alert alert-success"><?= htmlspecialchars($statusMessage); ?></div>
     <?php endif; ?>
-    
-    <div class="panel-card">
-        <table class="table">
-            <thead><tr><th>Doctor Name</th><th>Specialty</th><th>Status</th></tr></thead>
-            <tbody>
-                <?php foreach ($doctors as $d): ?>
-                <tr>
-                    <td class="align-middle"><?= htmlspecialchars($d['name']); ?></td>
-                    <td class="align-middle\"><?= htmlspecialchars($d['specialty'] ?? 'N/A'); ?></td>
-                    <td class="align-middle">
-                        <form method="post" class="d-flex gap-2 align-items-center mb-0">
+
+    <div class="row g-4 mb-5">
+        <?php foreach ($doctors as $d): ?>
+        <div class="col-12 col-md-6 col-lg-4">
+            <div class="directory-card">
+                <div class="directory-icon"><i class="fa-solid fa-stethoscope"></i></div>
+                <div class="directory-content">
+                    <p class="directory-name"><?= htmlspecialchars($d['name']); ?></p>
+                    <p class="directory-specialty"><?= htmlspecialchars($d['specialty'] ?? 'N/A'); ?></p>
+
+                    <details class="directory-manage">
+                        <summary>Set Status (<?= htmlspecialchars(ucfirst($d['status'] ?? 'inactive')); ?>)</summary>
+                        <form method="post" class="d-flex gap-2 align-items-center mt-2 mb-0">
                             <input type="hidden" name="doctor_id" value="<?= (int)$d['id']; ?>">
                             <select name="status" class="form-select form-select-sm" style="max-width: 140px;">
                                 <option value="active" <?= (($d['status'] ?? 'inactive') === 'active') ? 'selected' : ''; ?>>Active</option>
@@ -104,11 +119,11 @@ $doctors = $pdo->query($doctorQuery)->fetchAll(PDO::FETCH_ASSOC);
                             </select>
                             <button type="submit" class="btn btn-sm btn-primary">Save</button>
                         </form>
-                    </td>
-                </tr>
-                <?php endforeach; ?>
-            </tbody>
-        </table>
+                    </details>
+                </div>
+            </div>
+        </div>
+        <?php endforeach; ?>
     </div>
 </main>
 

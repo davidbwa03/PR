@@ -17,8 +17,8 @@ try {
     $stmt_status = $pdo->query("SELECT request_status, COUNT(*) as count FROM access_requests GROUP BY request_status");
     $status_distribution = $stmt_status->fetchAll(PDO::FETCH_ASSOC);
 
-    // 3. Get Staff vs Doctor count
-    $stmt_distribution = $pdo->query("SELECT 'Staff' as role, COUNT(*) as count FROM staff UNION SELECT 'Doctors', COUNT(*) FROM doctors");
+    // 3. Get Staff vs Doctor vs Patient count
+    $stmt_distribution = $pdo->query("SELECT 'Staff' as role, COUNT(*) as count FROM staff UNION SELECT 'Doctors', COUNT(*) FROM doctors UNION SELECT 'Patients', COUNT(*) FROM patients");
     $role_distribution = $stmt_distribution->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (\PDOException $e) {
@@ -73,25 +73,22 @@ try {
 </head>
 <body>
 
-    <nav class="sidebar-container">
+<nav class="sidebar-container">
         <div class="w-100">
             <div class="sidebar-brand">
                 <div class="brand-avatar">H</div>
-                <div class="brand-title">
-                    <h1>Hospital Admin</h1>
-                    <span>Portal</span>
-                </div>
+                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link">Overview</a>
+                <a href="patient_requests.php" class="menu-link">Patient Requests</a>
+                <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
                 <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link active">Analytics</a>
             </div>
         </div>
-        <div>
-            <a href="logout.php" class="logout-link">Sign Out</a>
-        </div>
+        <div><a href="logout.php" class="logout-link">Sign Out</a></div>
     </nav>
 
     <main class="workspace">
@@ -128,16 +125,20 @@ try {
         
         <div class="panel-card">
             <h2 class="panel-title">Request Status Overview</h2>
-            <div class="row">
-                <?php foreach ($status_distribution as $row): ?>
-                    <div class="col-md-4">
-                        <div class="border p-3 rounded text-center">
-                            <div class="text-muted small"><?= htmlspecialchars(ucfirst($row['request_status'])); ?></div>
-                            <h3 class="mt-2"><?= $row['count']; ?></h3>
+            <?php if (!empty($status_distribution)): ?>
+                <div class="row">
+                    <?php foreach ($status_distribution as $row): ?>
+                        <div class="col-md-4">
+                            <div class="border p-3 rounded text-center">
+                                <div class="text-muted small"><?= htmlspecialchars(ucfirst($row['request_status'])); ?></div>
+                                <h3 class="mt-2"><?= $row['count']; ?></h3>
+                            </div>
                         </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted mb-0">Request status will appear after a request is submitted.</p>
+            <?php endif; ?>
         </div>
     </main>
 
