@@ -9,19 +9,19 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
 }
 
 $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Administrator';
-$success_msg = "";
-$error_msg = "";
 
-// NOTE: Staff can no longer approve or decline requests here.
-// Only the patient can approve/decline their own data request (handled on the patient portal).
-// This page is now read-only for staff: it just shows the current status of every request.
+// Staff cannot approve or decline requests here — only the patient can.
+// This page is read-only: just the patient's name and their current status.
 
-// Fetch all requests, joined with patient details
 try {
     $stmt_requests = $pdo->query("
-        SELECT ar.id, ar.patient_id, ar.doctor_name, ar.medical_facility, ar.request_status,
-               ar.requested_at, ar.updated_at, ar.records_sent,
-               p.name AS patient_name, p.national_id AS patient_national_id
+        SELECT ar.id, ar.patient_id, ar.request_status,
+               p.name AS patient_name,
+               p.email AS patient_email,
+               p.national_id AS patient_national_id,
+               p.phone AS patient_phone,
+               p.dob AS patient_dob,
+               p.gender AS patient_gender
         FROM access_requests ar
         LEFT JOIN patients p ON p.id = ar.patient_id
         ORDER BY ar.requested_at DESC
@@ -82,14 +82,12 @@ function statusBadge($status) {
         .badge-declined { background-color: #fef2f2; color: #ef4444; }
 
         /* Patient request cards */
-        .pr-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 14px; padding: 24px; height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 20px; }
-        .pr-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 4px; }
+        .pr-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 14px; padding: 24px; height: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; }
         .pr-name { font-size: 16px; font-weight: 700; color: var(--text-main); margin: 0; }
-        .pr-meta { font-size: 13px; color: var(--text-sub); margin: 2px 0; }
-        .pr-meta span { color: var(--text-main); font-weight: 600; }
-        .pr-badge { font-size: 11px; font-weight: 600; padding: 6px 12px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-        .pr-view-btn { background-color: var(--teal-accent); color: #ffffff; border: none; border-radius: 30px; padding: 12px; font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
-        .pr-view-btn:hover { opacity: 0.92; color: #ffffff; }
+        .pr-badge { font-size: 12px; font-weight: 600; padding: 6px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+        .pr-details { font-size: 12px; color: var(--text-sub); line-height: 1.7; margin: 0; }
+        .pr-details span { color: var(--text-main); font-weight: 600; }
+        .pr-hidden { font-size: 12px; color: var(--text-sub); margin: 0; }
     </style>
 </head>
 <body>
@@ -114,15 +112,8 @@ function statusBadge($status) {
     <main class="workspace">
         <div class="hospital-header">
             <h2>Patient Data Requests</h2>
-            <p>View the status of record requests — approval or decline is made by the patient</p>
+            <p>Patient details are visible only after the patient approves access.</p>
         </div>
-
-        <?php if (!empty($success_msg)): ?>
-            <div class="alert alert-info mb-4"><?= htmlspecialchars($success_msg); ?></div>
-        <?php endif; ?>
-        <?php if (!empty($error_msg)): ?>
-            <div class="alert alert-danger mb-4"><?= htmlspecialchars($error_msg); ?></div>
-        <?php endif; ?>
 
         <?php if (empty($all_requests)): ?>
             <div class="panel-card text-center text-muted">No patient data requests yet.</div>
@@ -131,58 +122,29 @@ function statusBadge($status) {
             <?php foreach ($all_requests as $req):
                 $badge = statusBadge($req['request_status']);
                 $displayName = $req['patient_name'] ?: ('Patient #' . $req['patient_id']);
-                $nationalId = $req['patient_national_id'] ?: '—';
-                $dateStr = date('Y-m-d', strtotime($req['requested_at']));
-                $statusLower = strtolower($req['request_status']);
+                $isApproved = strtolower((string)$req['request_status']) === 'approved';
             ?>
             <div class="col-12 col-md-6 col-lg-4">
                 <div class="pr-card">
-                    <div>
-                        <div class="pr-card-top">
-                            <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
-                            <span class="pr-badge <?= $badge['class']; ?>"><i class="bi <?= $badge['icon']; ?>"></i> <?= $badge['label']; ?></span>
-                        </div>
-                        <p class="pr-meta">National ID: <?= htmlspecialchars($nationalId); ?></p>
-                        <p class="pr-meta">Date: <?= htmlspecialchars($dateStr); ?></p>
-                    </div>
-                    <button type="button" class="pr-view-btn" data-bs-toggle="modal" data-bs-target="#requestModal<?= (int)$req['id']; ?>">
-                        <i class="bi bi-eye"></i> View Request
-                    </button>
-                </div>
-            </div>
-
-            <div class="modal fade" id="requestModal<?= (int)$req['id']; ?>" tabindex="-1" aria-hidden="true">
-              <div class="modal-dialog">
-                <div class="modal-content">
-                  <div class="modal-header">
-                    <h5 class="modal-title">Request Details</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                  </div>
-                  <div class="modal-body">
-                    <p class="pr-meta"><span>Patient:</span> <?= htmlspecialchars($displayName); ?></p>
-                    <p class="pr-meta"><span>National ID:</span> <?= htmlspecialchars($nationalId); ?></p>
-                    <p class="pr-meta"><span>Requesting Doctor:</span> <?= htmlspecialchars($req['doctor_name']); ?></p>
-                    <p class="pr-meta"><span>Facility:</span> <?= htmlspecialchars($req['medical_facility']); ?></p>
-                    <p class="pr-meta"><span>Requested On:</span> <?= htmlspecialchars($req['requested_at']); ?></p>
-                    <p class="pr-meta"><span>Status:</span> <?= htmlspecialchars($badge['label']); ?></p>
-
-                    <?php if ($statusLower === 'pending'): ?>
-                        <div class="alert alert-warning mt-3 mb-0">Waiting on the patient to approve or decline this request.</div>
-                    <?php elseif ($statusLower === 'declined'): ?>
-                        <div class="alert alert-secondary mt-3 mb-0">The patient declined this request. No further action is needed here.</div>
-                    <?php elseif ($statusLower === 'approved'): ?>
-                        <?php if ((int)$req['records_sent'] === 1): ?>
-                            <div class="alert alert-success mt-3 mb-0">Records already sent to the doctor.</div>
+                    <?php if ($isApproved): ?>
+                        <h3 class="pr-name\"><?= htmlspecialchars($displayName); ?></h3>
+                        <p class="pr-details">
+                            National ID: <span><?= htmlspecialchars($req['patient_national_id'] ?: 'N/A'); ?></span><br>
+                            Email: <span><?= htmlspecialchars($req['patient_email'] ?: 'N/A'); ?></span><br>
+                            Phone: <span><?= htmlspecialchars($req['patient_phone'] ?: 'N/A'); ?></span><br>
+                            DOB: <span><?= htmlspecialchars($req['patient_dob'] ?: 'N/A'); ?></span><br>
+                            Gender: <span><?= htmlspecialchars($req['patient_gender'] ?: 'N/A'); ?></span>
+                        </p>
+                    <?php else: ?>
+                        <?php if (strtolower((string)$req['request_status']) === 'declined'): ?>
+                            <h3 class="pr-name">Patient Details Hidden</h3>
+                            <p class="pr-hidden">Patient declined this request. No details are visible.</p>
                         <?php else: ?>
-                            <div class="alert alert-success mt-3 mb-0">The patient approved this request — go to <strong>Send Records to Doctors</strong> to dispatch the records.</div>
+                            <h3 class="pr-name\"><?= htmlspecialchars($displayName); ?></h3>
                         <?php endif; ?>
                     <?php endif; ?>
-                  </div>
-                  <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                  </div>
+                    <span class="pr-badge <?= $badge['class']; ?>"><i class="bi <?= $badge['icon']; ?>"></i> <?= $badge['label']; ?></span>
                 </div>
-              </div>
             </div>
             <?php endforeach; ?>
         </div>
