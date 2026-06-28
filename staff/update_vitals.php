@@ -16,7 +16,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
     $blood_pressure = trim($_POST['blood_pressure'] ?? '');
     $heart_rate = trim($_POST['heart_rate'] ?? '');
     $temperature = trim($_POST['temperature'] ?? '');
-    $hospital_name = trim($_POST['hospital_name'] ?? 'Central Medical Center');
+    $vitals_date = trim($_POST['vitals_date'] ?? date('Y-m-d'));
+    $hospital_name = 'Central Medical Center';
     $notes = trim($_POST['notes'] ?? '');
 
     $patient_id = null;
@@ -29,8 +30,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
     }
 
     try {
-        if (empty($patient_ref) || empty($blood_pressure) || empty($heart_rate) || empty($temperature)) {
-            $error_msg = 'Patient reference, blood pressure, heart rate, and temperature are required.';
+        $valid_vitals_date = DateTime::createFromFormat('Y-m-d', $vitals_date);
+
+        if (empty($patient_ref) || empty($blood_pressure) || empty($heart_rate) || empty($temperature) || empty($vitals_date)) {
+            $error_msg = 'Patient reference, blood pressure, heart rate, temperature, and vitals date are required.';
+        } elseif (!$valid_vitals_date || $valid_vitals_date->format('Y-m-d') !== $vitals_date) {
+            $error_msg = 'Invalid vitals date. Use YYYY-MM-DD format.';
         } else {
             if ($patient_id !== null && $patient_id > 0) {
                 $stmt_patient = $pdo->prepare("SELECT id, name FROM patients WHERE id = ? LIMIT 1");
@@ -64,7 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
                         :pid,
                         :visit_type,
                         :hospital,
-                        CURDATE(),
+                        :visit_date,
                         :notes,
                         :created_by,
                         :blood_pressure,
@@ -78,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
                     'pid' => $resolved_patient_id,
                     'visit_type' => 'Vitals Check',
                     'hospital' => $hospital_name,
+                    'visit_date' => $vitals_date,
                     'notes' => $notes,
                     'created_by' => $staff_name,
                     'blood_pressure' => $blood_pressure,
@@ -85,6 +91,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
                     'temperature' => $temperature,
                     'clinical_notes' => $clinical_note,
                 ]);
+
+                $_SESSION['vitals_updated'] = true;
+                $_SESSION['vitals_updated_date'] = $vitals_date;
 
                 $success_msg = 'Vitals were saved for ' . $patient['name'] . '.';
             }
@@ -179,11 +188,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
                     <label class="form-label">Temperature (C)</label>
                     <input type="number" step="0.1" min="30" max="45" name="temperature" class="form-control" placeholder="36.6" required>
                 </div>
-                <div class="col-md-6">
-                    <label class="form-label">Hospital / Facility</label>
-                    <input type="text" name="hospital_name" class="form-control" value="Central Medical Center">
+                <div class="col-md-4">
+                    <label class="form-label">Vitals Date (must match sending date)</label>
+                    <input type="date" name="vitals_date" class="form-control" value="<?= htmlspecialchars($_POST['vitals_date'] ?? date('Y-m-d')); ?>" required>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-8">
                     <label class="form-label">Notes</label>
                     <input type="text" name="notes" class="form-control" placeholder="Optional observation notes">
                 </div>

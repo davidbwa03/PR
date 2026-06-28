@@ -41,11 +41,11 @@ if (!$patient) {
 $rec_stmt = $pdo->prepare("
     SELECT id,
            visit_date AS record_date,
-           clinical_notes AS diagnosis,
-           '' AS treatment,
-           medications_prescribed AS prescription,
+              visit_type,
+              COALESCE(diagnosis, clinical_notes) AS diagnosis,
+              treatment,
            notes,
-           physician_name AS doctor_name,
+              COALESCE(created_by, physician_name) AS doctor_name,
            created_at
     FROM medical_records
     WHERE patient_id = ?
@@ -53,6 +53,22 @@ $rec_stmt = $pdo->prepare("
 ");
 $rec_stmt->execute([$patient_id]);
 $records = $rec_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch prescriptions directly from medication_prescriptions
+$presc_stmt = $pdo->prepare("
+    SELECT medication_name,
+           dosage,
+           frequency,
+           duration,
+           notes,
+           prescribed_by,
+           created_at
+    FROM medication_prescriptions
+    WHERE patient_id = ?
+    ORDER BY id DESC
+");
+$presc_stmt->execute([$patient_id]);
+$prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -259,8 +275,6 @@ $records = $rec_stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 16px;
         }
 
-        .record-field { }
-
         .record-field label {
             font-size: 0.7rem;
             font-weight: 700;
@@ -377,16 +391,16 @@ $records = $rec_stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
             <div class="record-body">
                 <div class="record-field">
+                    <label><i class="fa-solid fa-heart-pulse"></i> Visit Type</label>
+                    <p><?php echo $rec['visit_type'] ? htmlspecialchars($rec['visit_type']) : '<span class="empty">Not recorded</span>'; ?></p>
+                </div>
+                <div class="record-field">
                     <label><i class="fa-solid fa-stethoscope"></i> Diagnosis</label>
                     <p><?php echo $rec['diagnosis'] ? htmlspecialchars($rec['diagnosis']) : '<span class="empty">Not recorded</span>'; ?></p>
                 </div>
                 <div class="record-field">
                     <label><i class="fa-solid fa-syringe"></i> Treatment</label>
                     <p><?php echo $rec['treatment'] ? htmlspecialchars($rec['treatment']) : '<span class="empty">Not recorded</span>'; ?></p>
-                </div>
-                <div class="record-field">
-                    <label><i class="fa-solid fa-pills"></i> Prescription</label>
-                    <p><?php echo $rec['prescription'] ? htmlspecialchars($rec['prescription']) : '<span class="empty">None</span>'; ?></p>
                 </div>
                 <?php if (!empty($rec['notes'])): ?>
                 <div class="record-field full">
@@ -402,6 +416,54 @@ $records = $rec_stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="empty-state">
             <i class="fa-solid fa-folder-open"></i>
             <p>No medical records found for this patient.</p>
+        </div>
+    <?php endif; ?>
+
+    <div class="section-title" style="margin-top: 28px;">
+        <i class="fa-solid fa-pills" style="color:#0e7490;"></i>
+        Prescription History
+        <span style="font-size:0.78rem; font-weight:500; color:#94a3b8; margin-left:4px;">(<?php echo count($prescriptions); ?> entr<?php echo count($prescriptions) !== 1 ? 'ies' : 'y'; ?>)</span>
+    </div>
+
+    <?php if (!empty($prescriptions)): ?>
+        <?php foreach ($prescriptions as $presc): ?>
+        <div class="record-card">
+            <div class="record-header">
+                <span class="record-date">
+                    <i class="fa-solid fa-capsules"></i>
+                    <?php echo htmlspecialchars($presc['medication_name']); ?>
+                </span>
+                <span class="record-doctor">
+                    <i class="fa-solid fa-user-doctor"></i>
+                    Dr. <?php echo htmlspecialchars($presc['prescribed_by'] ?: 'N/A'); ?>
+                </span>
+            </div>
+            <div class="record-body">
+                <div class="record-field">
+                    <label><i class="fa-solid fa-prescription-bottle-medical"></i> Dosage</label>
+                    <p><?php echo $presc['dosage'] ? htmlspecialchars($presc['dosage']) : '<span class="empty">Not recorded</span>'; ?></p>
+                </div>
+                <div class="record-field">
+                    <label><i class="fa-solid fa-clock"></i> Frequency</label>
+                    <p><?php echo $presc['frequency'] ? htmlspecialchars($presc['frequency']) : '<span class="empty">Not recorded</span>'; ?></p>
+                </div>
+                <div class="record-field">
+                    <label><i class="fa-solid fa-hourglass-half"></i> Duration</label>
+                    <p><?php echo $presc['duration'] ? htmlspecialchars($presc['duration']) : '<span class="empty">Not recorded</span>'; ?></p>
+                </div>
+                <?php if (!empty($presc['notes'])): ?>
+                <div class="record-field full">
+                    <label><i class="fa-solid fa-note-sticky"></i> Notes</label>
+                    <p><?php echo htmlspecialchars($presc['notes']); ?></p>
+                </div>
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php endforeach; ?>
+    <?php else: ?>
+        <div class="empty-state" style="padding: 30px 20px;">
+            <i class="fa-solid fa-capsules"></i>
+            <p>No prescriptions found for this patient.</p>
         </div>
     <?php endif; ?>
 

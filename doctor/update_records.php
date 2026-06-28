@@ -93,13 +93,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $error_msg = "Access Denied: You do not have approved access to this patient.";
     } elseif ($form_type === 'medical_record') {
         $visit_type    = trim($_POST['visit_type']    ?? '');
-        $hospital_name = trim($_POST['hospital_name'] ?? '');
+        $hospital_name = 'Central Medical Center';
         $visit_date    = trim($_POST['visit_date']    ?? '');
         $notes         = trim($_POST['notes']         ?? '');
         $diagnosis     = trim($_POST['diagnosis']     ?? '');
         $treatment     = trim($_POST['treatment']     ?? '');
 
-        if (empty($visit_type) || empty($hospital_name) || empty($visit_date)) {
+        if (empty($visit_type) || empty($visit_date)) {
             $error_msg = "Please fill in all required fields.";
         } else {
             $stmt_ins = $pdo->prepare("
@@ -275,10 +275,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </select>
                 </div>
                 <div class="field">
-                    <label>Hospital / Facility <span style="color:#dc2626;">*</span></label>
-                    <input type="text" name="hospital_name" placeholder="e.g. Nairobi General Hospital">
-                </div>
-                <div class="field">
                     <label>Visit Date <span style="color:#dc2626;">*</span></label>
                     <input type="date" name="visit_date" value="<?php echo date('Y-m-d'); ?>">
                 </div>
@@ -346,7 +342,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php foreach ($recent_records as $rec): ?>
                 <div class="record-item">
                     <strong><?php echo htmlspecialchars($rec['visit_type']); ?></strong><br>
-                    <small style="color:#64748b;"><?php echo htmlspecialchars($rec['visit_date']); ?> &bull; <?php echo htmlspecialchars($rec['hospital_name']); ?></small>
+                    <small style="color:#64748b;"><?php echo htmlspecialchars($rec['visit_date']); ?></small>
                     <?php if (!empty($rec['diagnosis'])): ?>
                     <p style="margin-top:4px; color:#475569;">Diag: <?php echo htmlspecialchars($rec['diagnosis']); ?></p>
                     <?php endif; ?>
