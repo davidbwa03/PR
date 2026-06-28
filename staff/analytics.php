@@ -83,6 +83,7 @@ try {
                 <a href="dashboard.php" class="menu-link">Overview</a>
                 <a href="patient_requests.php" class="menu-link">Patient Requests</a>
                 <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
+                <a href="update_vitals.php" class="menu-link">Update Patient Vitals</a>
                 <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link active">Analytics</a>

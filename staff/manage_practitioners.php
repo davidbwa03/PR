@@ -51,15 +51,18 @@ $doctors = $pdo->query($doctorQuery)->fetchAll(PDO::FETCH_ASSOC);
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
         :root { --sidebar-width: 260px; --main-bg: #f4f6f8; --sidebar-bg: #ffffff; --text-main: #1e293b; --text-sub: #64748b; --teal-accent: #107c91; --border-light: #e2e8f0; }
-        body { background-color: var(--main-bg); font-family: system-ui, sans-serif; color: var(--text-main); }
-        .sidebar-container { width: var(--sidebar-width); background-color: var(--sidebar-bg); border-right: 1px solid var(--border-light); height: 100vh; position: fixed; padding: 32px 20px; display: flex; flex-direction: column; justify-content: space-between; }
+        body { background-color: var(--main-bg); font-family: system-ui, -apple-system, sans-serif; color: var(--text-main); overflow-x: hidden; }
+        .sidebar-container { width: var(--sidebar-width); background-color: var(--sidebar-bg); border-right: 1px solid var(--border-light); height: 100vh; position: fixed; top: 0; left: 0; padding: 32px 20px; display: flex; flex-direction: column; justify-content: space-between; z-index: 1000; }
         .sidebar-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 40px; padding-left: 8px; }
-        .brand-avatar { background-color: var(--teal-accent); color: #ffffff; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-        .brand-title h1 { font-size: 18px; line-height: 1.2; margin: 0; font-weight: 700; }
-        .brand-title span { font-size: 12px; color: var(--text-sub); }
-        .menu-link { display: flex; align-items: center; padding: 12px 16px; color: var(--text-main); text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600; }
+        .brand-avatar { background-color: var(--teal-accent); color: #ffffff; width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 18px; }
+        .brand-title h1 { font-size: 15px; font-weight: 700; margin: 0; color: var(--text-main); }
+        .brand-title span { font-size: 11px; color: var(--text-sub); display: block; }
+        .sidebar-menu { display: flex; flex-direction: column; gap: 8px; }
+        .menu-link { display: flex; align-items: center; padding: 12px 16px; color: var(--text-main); text-decoration: none; border-radius: 8px; font-size: 14px; font-weight: 600; transition: all 0.2s ease; }
         .menu-link.active { background-color: var(--teal-accent); color: #ffffff; }
-        .logout-link { color: var(--text-sub); text-decoration: none; font-size: 14px; font-weight: 600; padding: 12px 16px; }
+        .menu-link:hover:not(.active) { background-color: #f1f5f9; color: var(--teal-accent); }
+        .logout-link { display: flex; align-items: center; padding: 12px 16px; color: var(--text-sub); text-decoration: none; font-size: 14px; font-weight: 600; border-radius: 8px; transition: all 0.2s; }
+        .logout-link:hover { background-color: #fef2f2; color: #ef4444; }
         .workspace { margin-left: var(--sidebar-width); padding: 40px 48px; }
         .panel-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 10px; padding: 28px; }
 
@@ -86,6 +89,7 @@ $doctors = $pdo->query($doctorQuery)->fetchAll(PDO::FETCH_ASSOC);
                 <a href="dashboard.php" class="menu-link">Overview</a>
                 <a href="patient_requests.php" class="menu-link">Patient Requests</a>
                 <a href="send_records.php" class="menu-link">Send Records to Doctors</a>
+                <a href="update_vitals.php" class="menu-link">Update Patient Vitals</a>
                 <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link active">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link">Analytics</a>
