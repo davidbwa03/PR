@@ -31,7 +31,7 @@ try {
     }
 
     // 2. Extract clinical data details + vitals from the latest medical record for the health metric blocks
-    $stmt_health = $pdo->prepare("SELECT visit_date, clinical_notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature FROM medical_records WHERE patient_id = :patient_id ORDER BY id DESC LIMIT 1");
+    $stmt_health = $pdo->prepare("SELECT visit_type, visit_date, created_at, clinical_notes, notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature, created_by FROM medical_records WHERE patient_id = :patient_id ORDER BY id DESC LIMIT 1");
     $stmt_health->execute(['patient_id' => $real_id]);
     $latest_record = $stmt_health->fetch();
 
@@ -40,6 +40,20 @@ try {
     $patient_id = "PT-2026-1";
     $latest_record = false;
 }
+
+$bp_display = !empty($latest_record['blood_pressure']) ? $latest_record['blood_pressure'] : '--';
+$hr_display = !empty($latest_record['heart_rate']) ? $latest_record['heart_rate'] : '--';
+$temp_display = !empty($latest_record['temperature']) ? $latest_record['temperature'] : '--';
+
+$visit_date_display = !empty($latest_record['visit_date']) ? date('Y-m-d', strtotime($latest_record['visit_date'])) : 'N/A';
+$updated_at_display = !empty($latest_record['created_at']) ? date('Y-m-d H:i', strtotime($latest_record['created_at'])) : 'N/A';
+$visit_type_display = !empty($latest_record['visit_type']) ? $latest_record['visit_type'] : 'Vitals Update';
+
+$facility_display = !empty($latest_record['hospital_name']) ? $latest_record['hospital_name'] : 'N/A';
+$updated_by_display = !empty($latest_record['created_by']) ? $latest_record['created_by'] : 'N/A';
+$notes_display = !empty($latest_record['clinical_notes'])
+    ? $latest_record['clinical_notes']
+    : (!empty($latest_record['notes']) ? $latest_record['notes'] : 'No notes provided.');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -286,7 +300,7 @@ try {
                 <div class="metric-info">
                     <p>Systolic Blood Pressure</p>
                     <h3>
-                        <?php echo htmlspecialchars($latest_record['blood_pressure'] ?? '120'); ?> 
+                        <?php echo htmlspecialchars($bp_display); ?> 
                         <span style="font-size: 14px; font-weight: normal; color: #64748b;">mmHg</span>
                     </h3>
                 </div>
@@ -297,7 +311,7 @@ try {
                 <div class="metric-info">
                     <p>Resting Heart Rate</p>
                     <h3>
-                        <?php echo htmlspecialchars($latest_record['heart_rate'] ?? '72'); ?> 
+                        <?php echo htmlspecialchars($hr_display); ?> 
                         <span style="font-size: 14px; font-weight: normal; color: #64748b;">BPM</span>
                     </h3>
                 </div>
@@ -308,7 +322,7 @@ try {
                 <div class="metric-info">
                     <p>Body Temperature</p>
                     <h3>
-                        <?php echo htmlspecialchars($latest_record['temperature'] ?? '36.6'); ?> 
+                        <?php echo htmlspecialchars($temp_display); ?> 
                         <span style="font-size: 14px; font-weight: normal; color: #64748b;">°C</span>
                     </h3>
                 </div>
@@ -318,21 +332,25 @@ try {
 
         <section class="card-custom">
             <div class="card-header-title mb-2">
-                <i class="fa-solid fa-notes-medical text-teal" style="color: var(--shif-teal);"></i> Latest Clinical Vitals & Observation Logs
+                <i class="fa-solid fa-notes-medical text-teal" style="color: var(--shif-teal);"></i> Latest Clinical Vitals and Observation
             </div>
-            <p class="text-muted small mb-4">Unified record evaluations compiled dynamically from interconnected middleware health provider node endpoints.</p>
+            <p class="text-muted small mb-4">This section shows the most recent vitals update saved by hospital staff or doctor.</p>
 
             <div class="vitals-box">
                 <?php if ($latest_record): ?>
                     <div class="row">
                         <div class="col-md-4 border-end">
+                            <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 11px;">Visit Type</small>
+                            <span class="fw-bold text-dark d-block mb-2"><?php echo htmlspecialchars($visit_type_display); ?></span>
                             <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 11px;">Last Assessment Date</small>
-                            <span class="fw-bold text-dark"><?php echo htmlspecialchars($latest_record['visit_date']); ?></span>
+                            <span class="fw-bold text-dark"><?php echo htmlspecialchars($visit_date_display); ?></span>
                         </div>
                         <div class="col-md-8 ps-4">
-                            <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 11px;">Attending Facility Notes</small>
-                            <p class="mb-2 text-dark" style="font-size: 14px; line-height: 1.5;"><?php echo htmlspecialchars($latest_record['clinical_notes']); ?></p>
-                            <small class="text-muted d-block">Origin Facility: <strong class="text-dark"><?php echo htmlspecialchars($latest_record['hospital_name']); ?></strong></small>
+                            <small class="text-uppercase text-muted fw-bold d-block mb-1" style="font-size: 11px;">Clinical Notes</small>
+                            <p class="mb-2 text-dark" style="font-size: 14px; line-height: 1.5;"><?php echo nl2br(htmlspecialchars($notes_display)); ?></p>
+                            <small class="text-muted d-block">Origin Facility: <strong class="text-dark"><?php echo htmlspecialchars($facility_display); ?></strong></small>
+                            <small class="text-muted d-block mt-1">Updated By: <strong class="text-dark"><?php echo htmlspecialchars($updated_by_display); ?></strong></small>
+                            <small class="text-muted d-block mt-1">Logged At: <strong class="text-dark"><?php echo htmlspecialchars($updated_at_display); ?></strong></small>
                         </div>
                     </div>
                 <?php else: ?>

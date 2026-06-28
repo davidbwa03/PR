@@ -11,22 +11,38 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
 $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Administrator';
 $success_msg = "";
 $error_msg = "";
+$doctors_list = [];
 
 // Handle sending records to the requesting doctor
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
     $request_id = (int)$_POST['request_id'];
-    if ($request_id > 0) {
-        $stmt = $pdo->prepare("UPDATE access_requests SET records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved'");
-        $stmt->execute([$request_id]);
-        if ($stmt->rowCount() > 0) {
-            $success_msg = "Medical records successfully sent to the doctor.";
+    $doctor_id = (int)($_POST['doctor_id'] ?? 0);
+
+    if ($request_id > 0 && $doctor_id > 0) {
+        $stmt_doctor = $pdo->prepare("SELECT name FROM doctors WHERE id = ? LIMIT 1");
+        $stmt_doctor->execute([$doctor_id]);
+        $selected_doctor_name = $stmt_doctor->fetchColumn();
+
+        if ($selected_doctor_name) {
+            $stmt = $pdo->prepare("UPDATE access_requests SET doctor_name = ?, records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved'");
+            $stmt->execute([$selected_doctor_name, $request_id]);
+            if ($stmt->rowCount() > 0) {
+                $success_msg = "Medical records successfully sent to Dr. " . $selected_doctor_name . ".";
+            } else {
+                $error_msg = "Unable to send records. This request may not be approved yet.";
+            }
         } else {
-            $error_msg = "Unable to send records. This request may not be approved yet.";
+            $error_msg = "Selected doctor was not found. Please choose a valid doctor.";
         }
+    } else {
+        $error_msg = "Please choose a doctor before sending records.";
     }
 }
 
 try {
+    $stmt_doctors = $pdo->query("SELECT id, name, specialty FROM doctors ORDER BY name ASC");
+    $doctors_list = $stmt_doctors->fetchAll(PDO::FETCH_ASSOC);
+
     // Approved requests still waiting to be dispatched
     $stmt_pending = $pdo->query("
         SELECT ar.id, ar.patient_id, ar.doctor_name, ar.medical_facility, ar.requested_at, ar.updated_at,
@@ -50,6 +66,7 @@ try {
     ");
     $sent_history = $stmt_sent->fetchAll(PDO::FETCH_ASSOC);
 } catch (\PDOException $e) {
+    $doctors_list = [];
     $pending_dispatch = [];
     $sent_history = [];
 }
@@ -104,6 +121,8 @@ try {
         .dispatch-meta span { color: var(--text-main); font-weight: 500; }
         .send-btn { background-color: var(--teal-accent); color: #ffffff; border: none; border-radius: 8px; padding: 10px 18px; font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
         .send-btn:hover { opacity: 0.92; color: #ffffff; }
+        .doctor-select { min-width: 230px; border-radius: 8px; }
+        .dispatch-form { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
     </style>
 </head>
 <body>
@@ -117,6 +136,7 @@ try {
                 <a href="dashboard.php" class="menu-link">Overview</a>
                 <a href="patient_requests.php" class="menu-link">Patient Requests</a>
                 <a href="send_records.php" class="menu-link active">Send Records to Doctors</a>
+                <a href="update_vitals.php" class="menu-link">Update Patient Vitals</a>
                 <a href="add_practitioner.php" class="menu-link">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
                 <a href="analytics.php" class="menu-link">Analytics</a>
@@ -128,7 +148,7 @@ try {
     <main class="workspace">
         <div class="hospital-header">
             <h2>Send Records to Doctors</h2>
-            <p>Dispatch approved patient records to the requesting doctors</p>
+            <p>Dispatch approved patient records and choose which doctor receives them</p>
         </div>
 
         <?php if (!empty($success_msg)): ?>
@@ -142,6 +162,10 @@ try {
             <h2 class="panel-title">Awaiting Dispatch</h2>
             <p class="panel-subtitle">Approved requests whose records have not been sent yet</p>
 
+            <?php if (empty($doctors_list)): ?>
+                <div class="alert alert-warning mb-3">No doctors are available. Add a doctor first, then send records.</div>
+            <?php endif; ?>
+
             <?php if (empty($pending_dispatch)): ?>
                 <p class="text-muted mb-0">Nothing waiting to be sent right now.</p>
             <?php else: ?>
@@ -151,13 +175,19 @@ try {
                 ?>
                 <div class="dispatch-row">
                     <div>
-                        <p class="dispatch-name"><?= htmlspecialchars($displayName); ?></p>
-                        <p class="dispatch-meta">National ID: <span><?= htmlspecialchars($nationalId); ?></span> &nbsp;•&nbsp; Doctor: <span><?= htmlspecialchars($req['doctor_name']); ?></span></p>
+                        <p class="dispatch-name\"><?= htmlspecialchars($displayName); ?></p>
+                        <p class="dispatch-meta">National ID: <span><?= htmlspecialchars($nationalId); ?></span> &nbsp;•&nbsp; Requested By: <span><?= htmlspecialchars($req['doctor_name']); ?></span></p>
                         <p class="dispatch-meta">Facility: <span><?= htmlspecialchars($req['medical_facility']); ?></span> &nbsp;•&nbsp; Requested: <span><?= htmlspecialchars(date('Y-m-d', strtotime($req['requested_at']))); ?></span></p>
                     </div>
-                    <form method="POST">
+                    <form method="POST" class="dispatch-form">
                         <input type="hidden" name="request_id" value="<?= (int)$req['id']; ?>">
-                        <button type="submit" name="send_records" class="send-btn"><i class="bi bi-send-fill"></i> Send Records</button>
+                        <select name="doctor_id" class="form-select doctor-select" required>
+                            <option value="">Choose Doctor</option>
+                            <?php foreach ($doctors_list as $doc): ?>
+                                <option value="<?= (int)$doc['id']; ?>"><?= htmlspecialchars($doc['name']); ?><?= !empty($doc['specialty']) ? ' - ' . htmlspecialchars($doc['specialty']) : ''; ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" name="send_records" class="send-btn" <?= empty($doctors_list) ? 'disabled' : ''; ?>><i class="bi bi-send-fill"></i> Send Records</button>
                     </form>
                 </div>
                 <?php endforeach; ?>
@@ -178,7 +208,7 @@ try {
                 <div class="dispatch-row">
                     <div>
                         <p class="dispatch-name"><?= htmlspecialchars($displayName); ?></p>
-                        <p class="dispatch-meta">National ID: <span><?= htmlspecialchars($nationalId); ?></span> &nbsp;•&nbsp; Doctor: <span><?= htmlspecialchars($req['doctor_name']); ?></span></p>
+                        <p class="dispatch-meta">National ID: <span><?= htmlspecialchars($nationalId); ?></span> &nbsp;•&nbsp; Sent To: <span><?= htmlspecialchars($req['doctor_name']); ?></span></p>
                         <p class="dispatch-meta">Sent: <span><?= htmlspecialchars(date('Y-m-d H:i', strtotime($req['updated_at']))); ?></span></p>
                     </div>
                     <span class="custom-badge badge-approved"><i class="bi bi-check-circle-fill"></i> Sent</span>

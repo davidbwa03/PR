@@ -10,6 +10,7 @@ if (!isset($_SESSION['patient']) || !isset($_SESSION['2fa_verified']) || $_SESSI
 
 $email = $_SESSION['patient'];
 $records = [];
+$prescriptions = [];
 
 try {
     // 1. Get the patient's primary ID from their active session email
@@ -26,6 +27,11 @@ try {
         $stmt = $pdo->prepare($query);
         $stmt->execute([$patient_id]);
         $records = $stmt->fetchAll();
+
+        $prescriptionQuery = "SELECT * FROM medication_prescriptions WHERE patient_id = ? ORDER BY id DESC";
+        $prescriptionStmt = $pdo->prepare($prescriptionQuery);
+        $prescriptionStmt->execute([$patient_id]);
+        $prescriptions = $prescriptionStmt->fetchAll();
     } else {
         die("Account configuration mapping mismatch error.");
     }
@@ -264,6 +270,27 @@ try {
             justify-content: space-between;
         }
 
+        .section-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: #0f172a;
+            margin: 30px 0 16px;
+        }
+
+        .prescription-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 22px;
+            margin-bottom: 16px;
+        }
+
+        .prescription-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
         .no-records {
             text-align: center;
             padding: 48px;
@@ -318,43 +345,61 @@ try {
                     
                     <div class="record-header">
                         <div>
-                            <h2 class="visit-title"><?php echo htmlspecialchars($record['visit_type']); ?></h2>
-                            <span class="visit-id"><?php echo htmlspecialchars($record['visit_number']); ?></span>
+                            <h2 class="visit-title"><?php echo htmlspecialchars($record['visit_type'] ?? 'Medical Visit'); ?></h2>
+                            <span class="visit-id"><?php echo htmlspecialchars($record['visit_number'] ?? ('REC-' . ($record['id'] ?? 'N/A'))); ?></span>
                         </div>
                         <div class="visit-date">
-                            <i class="fa-regular fa-calendar me-1"></i> <?php echo date('Y-m-d', strtotime($record['visit_date'])); ?>
+                            <i class="fa-regular fa-calendar me-1"></i> <?php echo !empty($record['visit_date']) ? date('Y-m-d', strtotime($record['visit_date'])) : 'N/A'; ?>
                         </div>
                     </div>
 
                     <div class="metadata-grid">
                         <div class="meta-group">
                             <div class="meta-label">Hospital</div>
-                            <div class="meta-value"><i class="fa-solid fa-hospital text-muted me-1"></i> <?php echo htmlspecialchars($record['hospital_name']); ?></div>
+                            <div class="meta-value"><i class="fa-solid fa-hospital text-muted me-1"></i> <?php echo htmlspecialchars($record['hospital_name'] ?? 'N/A'); ?></div>
                         </div>
                         <div class="meta-group">
                             <div class="meta-label">Attending Physician</div>
-                            <div class="meta-value"><i class="fa-solid fa-user-doctor text-muted me-1"></i> <?php echo htmlspecialchars($record['physician_name']); ?></div>
+                            <div class="meta-value"><i class="fa-solid fa-user-doctor text-muted me-1"></i> <?php echo htmlspecialchars($record['created_by'] ?? ($record['physician_name'] ?? 'N/A')); ?></div>
                         </div>
                     </div>
 
-                    <div class="meds-container">
-                        <div class="meta-label">Medications Prescribed</div>
-                        <div>
-                            <?php 
-                            $meds = explode(',', $record['medications_prescribed']);
-                            foreach ($meds as $med) {
-                                if (trim($med) !== "") {
-                                    echo '<span class="med-tag"><i class="fa-solid fa-pills me-1"></i>' . htmlspecialchars(trim($med)) . '</span>';
+                    <?php if (!empty($record['medications_prescribed'])): ?>
+                        <div class="meds-container">
+                            <div class="meta-label">Medications Prescribed</div>
+                            <div>
+                                <?php 
+                                $meds = explode(',', (string)$record['medications_prescribed']);
+                                foreach ($meds as $med) {
+                                    if (trim($med) !== "") {
+                                        echo '<span class="med-tag"><i class="fa-solid fa-pills me-1"></i>' . htmlspecialchars(trim($med)) . '</span>';
+                                    }
                                 }
-                            }
-                            ?>
+                                ?>
+                            </div>
                         </div>
-                    </div>
+                    <?php endif; ?>
 
+                    <?php if (!empty($record['diagnosis'])): ?>
+                    <div class="mt-3">
+                        <div class="meta-label">Diagnosis</div>
+                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['diagnosis'])); ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($record['treatment'])): ?>
+                    <div class="mt-3">
+                        <div class="meta-label">Treatment Plan</div>
+                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['treatment'])); ?></p>
+                    </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($record['clinical_notes']) || !empty($record['notes'])): ?>
                     <div>
                         <div class="meta-label">Clinical Notes</div>
-                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['clinical_notes'])); ?></p>
+                        <p class="notes-content"><?php echo nl2br(htmlspecialchars($record['clinical_notes'] ?? $record['notes'])); ?></p>
                     </div>
+                    <?php endif; ?>
 
                     <?php if (!empty($record['notes'])): ?>
                     <div class="mt-3">
@@ -380,6 +425,48 @@ try {
 
                 </div>
             <?php endforeach; ?>
+
+            <h3 class="section-title">Prescriptions Added By Doctors</h3>
+            <?php if (empty($prescriptions)): ?>
+                <div class="no-records" style="padding: 24px;">
+                    <p class="mb-0">No prescriptions have been added yet.</p>
+                </div>
+            <?php else: ?>
+                <?php foreach ($prescriptions as $prescription): ?>
+                    <div class="prescription-card">
+                        <div class="prescription-grid">
+                            <div>
+                                <div class="meta-label">Medication Name</div>
+                                <div class="meta-value"><?= htmlspecialchars($prescription['medication_name'] ?? 'N/A'); ?></div>
+                            </div>
+                            <div>
+                                <div class="meta-label">Dosage</div>
+                                <div class="meta-value"><?= htmlspecialchars($prescription['dosage'] ?? 'N/A'); ?></div>
+                            </div>
+                            <div>
+                                <div class="meta-label">Frequency</div>
+                                <div class="meta-value"><?= htmlspecialchars($prescription['frequency'] ?? 'N/A'); ?></div>
+                            </div>
+                            <div>
+                                <div class="meta-label">Duration</div>
+                                <div class="meta-value"><?= htmlspecialchars($prescription['duration'] ?? 'N/A'); ?></div>
+                            </div>
+                        </div>
+
+                        <?php if (!empty($prescription['notes'])): ?>
+                        <div class="mt-3">
+                            <div class="meta-label">Prescription Notes</div>
+                            <p class="notes-content"><?= nl2br(htmlspecialchars($prescription['notes'])); ?></p>
+                        </div>
+                        <?php endif; ?>
+
+                        <div class="record-footer mt-3">
+                            <span>Prescribed by: <?= htmlspecialchars($prescription['prescribed_by'] ?? 'N/A'); ?></span>
+                            <span>ID: <?= htmlspecialchars((string)($prescription['id'] ?? 'N/A')); ?></span>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
 
         <?php endif; ?>
     </div>

@@ -22,8 +22,9 @@ if (!empty($specialty)) {
 $stmtTotal = $pdo->prepare("
     SELECT COUNT(DISTINCT ar.patient_id)
     FROM access_requests ar
-    JOIN medical_records mr ON mr.patient_id = ar.patient_id
-    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+        WHERE ar.doctor_name = :dname
+            AND ar.request_status = 'approved'
+            AND ar.records_sent = 1
 ");
 $stmtTotal->execute(['dname' => $doctor_name]);
 $total_patients = (int) $stmtTotal->fetchColumn();
@@ -31,9 +32,15 @@ $total_patients = (int) $stmtTotal->fetchColumn();
 // Total medical records sent to this doctor
 $stmtRecords = $pdo->prepare("
     SELECT COUNT(*)
-    FROM medical_records mr
-    JOIN access_requests ar ON ar.patient_id = mr.patient_id
-    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+        FROM medical_records mr
+        WHERE EXISTS (
+                SELECT 1
+                FROM access_requests ar
+                WHERE ar.patient_id = mr.patient_id
+                    AND ar.doctor_name = :dname
+                    AND ar.request_status = 'approved'
+                    AND ar.records_sent = 1
+        )
 ");
 $stmtRecords->execute(['dname' => $doctor_name]);
 $total_records = (int) $stmtRecords->fetchColumn();
@@ -42,9 +49,14 @@ $total_records = (int) $stmtRecords->fetchColumn();
 $stmtNew = $pdo->prepare("
     SELECT COUNT(*)
     FROM medical_records mr
-    JOIN access_requests ar ON ar.patient_id = mr.patient_id
-    WHERE ar.doctor_name = :dname
-      AND ar.request_status = 'approved'
+        WHERE EXISTS (
+                SELECT 1
+                FROM access_requests ar
+                WHERE ar.patient_id = mr.patient_id
+                    AND ar.doctor_name = :dname
+                    AND ar.request_status = 'approved'
+                    AND ar.records_sent = 1
+        )
       AND DATE(mr.created_at) = CURDATE()
 ");
 $stmtNew->execute(['dname' => $doctor_name]);
@@ -61,8 +73,9 @@ $stmtRecent = $pdo->prepare("
            (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
-    JOIN medical_records mr ON mr.patient_id = p.id
-    WHERE ar.doctor_name = :dname AND ar.request_status = 'approved'
+        WHERE ar.doctor_name = :dname
+            AND ar.request_status = 'approved'
+            AND ar.records_sent = 1
     ORDER BY ar.requested_at DESC
     LIMIT 5
 ");
