@@ -9,6 +9,15 @@ require_once 'db.php';
 $doctor_id   = $_SESSION['doctor_id'];
 $doctor_name = $_SESSION['doctor_name'];
 
+// Fetch doctor's specialty to keep sidebar consistent with dashboard
+$doctor_specialty = 'Doctor';
+$specialtyStmt = $pdo->prepare("SELECT specialty FROM doctors WHERE id = :doctor_id LIMIT 1");
+$specialtyStmt->execute(['doctor_id' => $doctor_id]);
+$specialty = $specialtyStmt->fetchColumn();
+if (!empty($specialty)) {
+    $doctor_specialty = $specialty;
+}
+
 // Validate patient_id from URL
 $patient_id = isset($_GET['patient_id']) ? (int)$_GET['patient_id'] : 0;
 if (!$patient_id) {
@@ -18,12 +27,14 @@ if (!$patient_id) {
 
 // Security: confirm this doctor has an APPROVED request for this patient and records are sent
 $access_stmt = $pdo->prepare("
-    SELECT id FROM access_requests
+    SELECT id, doctor_name, medical_facility, request_status, records_sent, requested_at, updated_at
+    FROM access_requests
     WHERE doctor_name = ? AND patient_id = ? AND request_status = 'approved' AND records_sent = 1
     LIMIT 1
 ");
 $access_stmt->execute([$doctor_name, $patient_id]);
-if (!$access_stmt->fetch()) {
+$access_consent = $access_stmt->fetch(PDO::FETCH_ASSOC);
+if (!$access_consent) {
     header("Location: my_patients.php");
     exit();
 }
@@ -218,6 +229,67 @@ $prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .profile-meta span i { color: #94a3b8; }
 
+        /* ── Privacy consent card ── */
+        .consent-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #0e7490;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 20px;
+        }
+
+        .consent-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+
+        .consent-title {
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .consent-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+            border-radius: 999px;
+            padding: 4px 10px;
+        }
+
+        .consent-pill.approved {
+            color: #166534;
+            background: #dcfce7;
+            border: 1px solid #86efac;
+        }
+
+        .consent-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px 18px;
+        }
+
+        .consent-grid span {
+            font-size: 0.82rem;
+            color: #475569;
+        }
+
+        .consent-grid strong {
+            color: #0f172a;
+        }
+
         /* ── Records section ── */
         .section-title {
             font-size: 1rem;
@@ -322,13 +394,13 @@ $prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
     <div class="sidebar-brand">
         <div class="icon-box"><i class="fa-solid fa-stethoscope"></i></div>
         <div class="brand-label">
-            <strong>Practitioner</strong>
-            <small>Portal Panel</small>
+            <strong>Dr. <?php echo htmlspecialchars($doctor_name); ?></strong>
+            <small><?php echo htmlspecialchars($doctor_specialty); ?></small>
         </div>
     </div>
 
     <a href="dashboard.php" class="nav-link-custom">
-        <i class="fa-solid fa-magnifying-glass"></i> Request Patient Data
+        <i class="fa-solid fa-house"></i> Dashboard overview
     </a>
     <a href="my_patients.php" class="nav-link-custom active">
         <i class="fa-solid fa-users"></i> My Patients
@@ -367,6 +439,27 @@ $prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
                     <span><i class="fa-solid fa-phone"></i> <?php echo htmlspecialchars($patient['phone']); ?></span>
                 <?php endif; ?>
             </div>
+        </div>
+    </div>
+
+    <div class="consent-card">
+        <div class="consent-head">
+            <div class="consent-title">
+                <i class="fa-solid fa-shield-heart" style="color:#0e7490;"></i>
+                Privacy Consent Controls
+            </div>
+            <span class="consent-pill approved">
+                <i class="fa-solid fa-circle-check"></i>
+                <?php echo htmlspecialchars(ucfirst((string)$access_consent['request_status'])); ?>
+            </span>
+        </div>
+        <div class="consent-grid">
+            <span>Patient Consent Scope: <strong>Medical records shared</strong></span>
+            <span>Records Delivery: <strong><?php echo ((int)$access_consent['records_sent'] === 1) ? 'Completed' : 'Pending'; ?></strong></span>
+            <span>Approved For Doctor: <strong>Dr. <?php echo htmlspecialchars($access_consent['doctor_name'] ?: $doctor_name); ?></strong></span>
+            <span>Facility: <strong><?php echo htmlspecialchars($access_consent['medical_facility'] ?: 'Not specified'); ?></strong></span>
+            <span>Request Date: <strong><?php echo !empty($access_consent['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['requested_at']))) : 'N/A'; ?></strong></span>
+            <span>Last Consent Update: <strong><?php echo !empty($access_consent['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['updated_at']))) : 'N/A'; ?></strong></span>
         </div>
     </div>
 

@@ -1,8 +1,8 @@
 <?php
 session_start();
 
-// Strict Gatekeeper Check: Kick out anyone who hasn't verified via 2FA
-if (!isset($_SESSION['2fa_verified']) || $_SESSION['2fa_verified'] !== true) {
+// Strict Gatekeeper Check: require a logged-in patient with verified 2FA
+if (!isset($_SESSION['patient']) || !isset($_SESSION['2fa_verified']) || $_SESSION['2fa_verified'] !== true) {
     header("Location: login.php");
     exit();
 }
@@ -30,8 +30,9 @@ try {
         $patient_id = "PT-2026-1"; 
     }
 
-    // 2. Extract clinical data details + vitals from the latest medical record for the health metric blocks
-    $stmt_health = $pdo->prepare("SELECT visit_type, visit_date, created_at, clinical_notes, notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature, created_by FROM medical_records WHERE patient_id = :patient_id ORDER BY id DESC LIMIT 1");
+    // 2. Pull the latest record that actually has vitals values populated.
+    // Using generic latest record can surface non-vitals visits and show stale/blank metrics.
+    $stmt_health = $pdo->prepare("SELECT visit_type, visit_date, created_at, clinical_notes, notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature, created_by FROM medical_records WHERE patient_id = :patient_id AND blood_pressure IS NOT NULL AND blood_pressure <> '' AND heart_rate IS NOT NULL AND heart_rate <> '' AND temperature IS NOT NULL AND temperature <> '' ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
     $stmt_health->execute(['patient_id' => $real_id]);
     $latest_record = $stmt_health->fetch();
 
@@ -350,7 +351,6 @@ $notes_display = !empty($latest_record['clinical_notes'])
                             <p class="mb-2 text-dark" style="font-size: 14px; line-height: 1.5;"><?php echo nl2br(htmlspecialchars($notes_display)); ?></p>
                             <small class="text-muted d-block">Origin Facility: <strong class="text-dark"><?php echo htmlspecialchars($facility_display); ?></strong></small>
                             <small class="text-muted d-block mt-1">Updated By: <strong class="text-dark"><?php echo htmlspecialchars($updated_by_display); ?></strong></small>
-                            <small class="text-muted d-block mt-1">Logged At: <strong class="text-dark"><?php echo htmlspecialchars($updated_at_display); ?></strong></small>
                         </div>
                     </div>
                 <?php else: ?>
