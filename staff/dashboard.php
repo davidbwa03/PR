@@ -11,6 +11,22 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
 
 // Extract authenticated session attributes safely
 $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Administrator';
+$staff_id = isset($_SESSION['staff_id']) ? (int) $_SESSION['staff_id'] : 0;
+$hospital_brand_name = 'Hospital';
+
+try {
+    if ($staff_id > 0) {
+        $stmt_hospital_name = $pdo->prepare("SELECT hospital_name FROM staff WHERE id = ? LIMIT 1");
+        $stmt_hospital_name->execute([$staff_id]);
+        $resolved_hospital_name = trim((string) $stmt_hospital_name->fetchColumn());
+        if ($resolved_hospital_name !== '') {
+            $hospital_brand_name = $resolved_hospital_name;
+        }
+    }
+} catch (PDOException $e) {
+    $hospital_brand_name = 'Hospital';
+}
+
 $success_msg = "";
 $error_msg = "";
 $system_uptime = "99.9%";
@@ -42,7 +58,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($resolved_patient_id) {
                 $stmt = $pdo->prepare("INSERT INTO access_requests (patient_id, doctor_name, medical_facility, request_status, requested_at) VALUES (?, ?, ?, 'pending', NOW())");
-                $stmt->execute([(int)$resolved_patient_id, $staff_name, 'System Request']);
+                $facility_name = ($hospital_brand_name !== '') ? $hospital_brand_name : 'Central Medical Center';
+                $stmt->execute([(int)$resolved_patient_id, $staff_name, $facility_name]);
                 $success_msg = "Summary request for " . htmlspecialchars($patient_id_input) . " has been initiated.";
             } else {
                 $error_msg = "No patient matched the provided reference. Use Patient DB ID, National ID, or Email.";
@@ -72,32 +89,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+$active_practitioners_count = 0;
+$patients_today_count = 0;
+$data_requests_count = 0;
+$practitioners_list = [];
+$recent_requests = [];
+
 try {
     $stmt_practitioners = $pdo->query("SELECT (SELECT COUNT(*) FROM staff) + (SELECT COUNT(*) FROM doctors)");
-    $active_practitioners_count = $stmt_practitioners->fetchColumn();
-
-    $stmt_patients_today = $pdo->query("SELECT COUNT(*) FROM patients WHERE DATE(created_at) = CURDATE()");
-    $patients_today_count = $stmt_patients_today->fetchColumn();
-    if ($patients_today_count == 0) {
-        $stmt_total_patients = $pdo->query("SELECT COUNT(*) FROM patients");
-        $patients_today_count = $stmt_total_patients->fetchColumn();
-    }
-
-    $stmt_requests_count = $pdo->query("SELECT COUNT(*) FROM access_requests");
-    $data_requests_count = $stmt_requests_count->fetchColumn();
-
-    $stmt_staff = $pdo->query("SELECT id, name, specialty, 'staff' as type FROM staff UNION ALL SELECT id, name, specialty, 'doctors' as type FROM doctors ORDER BY name ASC LIMIT 3");
-    $practitioners_list = $stmt_staff->fetchAll(PDO::FETCH_ASSOC);
-
-    $stmt_requests = $pdo->query("SELECT id, patient_id, doctor_name, medical_facility, request_status, requested_at, records_sent FROM access_requests ORDER BY requested_at DESC LIMIT 10");
-    $recent_requests = $stmt_requests->fetchAll(PDO::FETCH_ASSOC);
-
+    $active_practitioners_count = (int) $stmt_practitioners->fetchColumn();
 } catch (\PDOException $e) {
     $active_practitioners_count = 0;
-    $patients_today_count = 0; 
+}
+
+try {
+    $stmt_patients_today = $pdo->query("SELECT COUNT(*) FROM patients WHERE DATE(created_at) = CURDATE()");
+    $patients_today_count = (int) $stmt_patients_today->fetchColumn();
+    if ($patients_today_count === 0) {
+        $stmt_total_patients = $pdo->query("SELECT COUNT(*) FROM patients");
+        $patients_today_count = (int) $stmt_total_patients->fetchColumn();
+    }
+} catch (\PDOException $e) {
+    $patients_today_count = 0;
+}
+
+try {
+    $stmt_requests_count = $pdo->query("SELECT COUNT(*) FROM access_requests");
+    $data_requests_count = (int) $stmt_requests_count->fetchColumn();
+} catch (\PDOException $e) {
     $data_requests_count = 0;
-    $system_uptime = "99.9%";
+}
+
+try {
+    $stmt_staff = $pdo->query(
+        "SELECT id, name, 'Hospital Staff' AS specialty, 'staff' AS type FROM staff
+         UNION ALL
+         SELECT id, name, specialty, 'doctors' AS type FROM doctors
+         ORDER BY name ASC
+         LIMIT 3"
+    );
+    $practitioners_list = $stmt_staff->fetchAll(PDO::FETCH_ASSOC);
+} catch (\PDOException $e) {
     $practitioners_list = [];
+}
+
+try {
+    $stmt_requests = $pdo->query("SELECT id, patient_id, doctor_name, medical_facility, request_status, requested_at, records_sent FROM access_requests ORDER BY requested_at DESC LIMIT 10");
+    $recent_requests = $stmt_requests->fetchAll(PDO::FETCH_ASSOC);
+} catch (\PDOException $e) {
     $recent_requests = [];
 }
 ?>
@@ -162,7 +201,7 @@ try {
         <div class="w-100">
             <div class="sidebar-brand">
                 <div class="brand-avatar">H</div>
-                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
+                <div class="brand-title"><h1><?= htmlspecialchars($hospital_brand_name); ?></h1><span>Portal</span></div>
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link active">Overview</a>

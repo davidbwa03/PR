@@ -30,21 +30,36 @@ try {
         $patient_id = "PT-2026-1"; 
     }
 
-    // 2. Pull the latest record that actually has vitals values populated.
-    // Using generic latest record can surface non-vitals visits and show stale/blank metrics.
-    $stmt_health = $pdo->prepare("SELECT visit_type, visit_date, created_at, clinical_notes, notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature, created_by FROM medical_records WHERE patient_id = :patient_id AND blood_pressure IS NOT NULL AND blood_pressure <> '' AND heart_rate IS NOT NULL AND heart_rate <> '' AND temperature IS NOT NULL AND temperature <> '' ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
+    // 2. Pull the latest record with at least one vitals metric.
+    $stmt_health = $pdo->prepare("SELECT visit_type, visit_date, created_at, clinical_notes, notes, medications_prescribed, hospital_name, blood_pressure, heart_rate, temperature, created_by FROM medical_records WHERE patient_id = :patient_id AND ((blood_pressure IS NOT NULL AND blood_pressure <> '') OR (heart_rate IS NOT NULL AND heart_rate <> '') OR (temperature IS NOT NULL AND temperature <> '')) ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
     $stmt_health->execute(['patient_id' => $real_id]);
     $latest_record = $stmt_health->fetch();
+
+    // 3. Get most recent non-empty value per metric (so one missing field does not hide others).
+    $stmt_bp = $pdo->prepare("SELECT blood_pressure FROM medical_records WHERE patient_id = :patient_id AND blood_pressure IS NOT NULL AND blood_pressure <> '' ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
+    $stmt_bp->execute(['patient_id' => $real_id]);
+    $latest_bp = $stmt_bp->fetchColumn();
+
+    $stmt_hr = $pdo->prepare("SELECT heart_rate FROM medical_records WHERE patient_id = :patient_id AND heart_rate IS NOT NULL AND heart_rate <> '' ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
+    $stmt_hr->execute(['patient_id' => $real_id]);
+    $latest_hr = $stmt_hr->fetchColumn();
+
+    $stmt_temp = $pdo->prepare("SELECT temperature FROM medical_records WHERE patient_id = :patient_id AND temperature IS NOT NULL AND temperature <> '' ORDER BY COALESCE(visit_date, created_at) DESC, id DESC LIMIT 1");
+    $stmt_temp->execute(['patient_id' => $real_id]);
+    $latest_temp = $stmt_temp->fetchColumn();
 
 } catch (PDOException $e) {
     // Graceful error fallback
     $patient_id = "PT-2026-1";
     $latest_record = false;
+    $latest_bp = null;
+    $latest_hr = null;
+    $latest_temp = null;
 }
 
-$bp_display = !empty($latest_record['blood_pressure']) ? $latest_record['blood_pressure'] : '--';
-$hr_display = !empty($latest_record['heart_rate']) ? $latest_record['heart_rate'] : '--';
-$temp_display = !empty($latest_record['temperature']) ? $latest_record['temperature'] : '--';
+$bp_display = !empty($latest_bp) ? $latest_bp : '--';
+$hr_display = !empty($latest_hr) ? $latest_hr : '--';
+$temp_display = !empty($latest_temp) ? $latest_temp : '--';
 
 $visit_date_display = !empty($latest_record['visit_date']) ? date('Y-m-d', strtotime($latest_record['visit_date'])) : 'N/A';
 $updated_at_display = !empty($latest_record['created_at']) ? date('Y-m-d H:i', strtotime($latest_record['created_at'])) : 'N/A';

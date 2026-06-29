@@ -10,6 +10,8 @@ require_once 'db.php';
 
 try {
     $patient_id = $_SESSION['user_id']; 
+    $allergy_success_msg = '';
+    $allergy_error_msg = '';
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS patient_privacy_consents (
         patient_id INT NOT NULL PRIMARY KEY,
@@ -28,6 +30,57 @@ try {
     try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0"); } catch (PDOException $e) {}
     try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_id INT NULL"); } catch (PDOException $e) {}
     try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_name VARCHAR(255) NULL"); } catch (PDOException $e) {}
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS patient_allergies (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        patient_id INT NOT NULL,
+        allergen_name VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_patient_allergen (patient_id, allergen_name)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        if (isset($_POST['add_allergy'])) {
+            $allergen_name = trim($_POST['allergen_name'] ?? '');
+
+            if ($allergen_name === '') {
+                $allergy_error_msg = 'Please enter an allergen name.';
+            } elseif (mb_strlen($allergen_name) > 100) {
+                $allergy_error_msg = 'Allergen name is too long. Use 100 characters or less.';
+            } else {
+                $stmt_exists = $pdo->prepare("SELECT id FROM patient_allergies WHERE patient_id = :patient_id AND LOWER(allergen_name) = LOWER(:allergen_name) LIMIT 1");
+                $stmt_exists->execute([
+                    'patient_id' => $patient_id,
+                    'allergen_name' => $allergen_name
+                ]);
+
+                if ($stmt_exists->fetch()) {
+                    $allergy_error_msg = 'This allergen is already in your list.';
+                } else {
+                    $stmt_add_allergy = $pdo->prepare("INSERT INTO patient_allergies (patient_id, allergen_name) VALUES (:patient_id, :allergen_name)");
+                    $stmt_add_allergy->execute([
+                        'patient_id' => $patient_id,
+                        'allergen_name' => $allergen_name
+                    ]);
+                    $allergy_success_msg = 'Allergen added successfully.';
+                }
+            }
+        }
+
+        if (isset($_POST['remove_allergy'])) {
+            $allergy_id = (int)($_POST['allergy_id'] ?? 0);
+            if ($allergy_id > 0) {
+                $stmt_remove_allergy = $pdo->prepare("DELETE FROM patient_allergies WHERE id = :id AND patient_id = :patient_id");
+                $stmt_remove_allergy->execute([
+                    'id' => $allergy_id,
+                    'patient_id' => $patient_id
+                ]);
+                if ($stmt_remove_allergy->rowCount() > 0) {
+                    $allergy_success_msg = 'Allergen removed.';
+                }
+            }
+        }
+    }
 
     $stmt_consents = $pdo->prepare("SELECT allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_name, updated_at FROM patient_privacy_consents WHERE patient_id = :patient_id LIMIT 1");
     $stmt_consents->execute(['patient_id' => $patient_id]);
@@ -65,9 +118,13 @@ try {
     $medications = $stmt_med_list->fetchAll();
 
     // 5. Fetch the 5 most recent clinical interactions
-    $stmt_audit = $pdo->prepare("SELECT visit_type, hospital_name, visit_date FROM medical_records WHERE patient_id = :patient_id ORDER BY visit_date DESC LIMIT 5");
+    $stmt_audit = $pdo->prepare("SELECT visit_type, COALESCE(NULLIF(TRIM(hospital_name), ''), 'Central Medical Center') AS hospital_name, visit_date FROM medical_records WHERE patient_id = :patient_id ORDER BY visit_date DESC LIMIT 5");
     $stmt_audit->execute(['patient_id' => $patient_id]);
     $recent_records = $stmt_audit->fetchAll();
+
+    $stmt_allergies = $pdo->prepare("SELECT id, allergen_name FROM patient_allergies WHERE patient_id = :patient_id ORDER BY created_at DESC, id DESC");
+    $stmt_allergies->execute(['patient_id' => $patient_id]);
+    $patient_allergies = $stmt_allergies->fetchAll(PDO::FETCH_ASSOC);
 
 } catch (PDOException $e) {
     $error_msg = "An error occurred retrieving your SHIF integration analytics.";
@@ -210,6 +267,27 @@ try {
             font-weight: 500; font-size: 0.85rem;
             display: inline-block; margin-right: 8px;
         }
+        .allergy-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+            border-radius: 999px;
+            padding: 6px 10px;
+            font-size: 0.82rem;
+            margin: 0 8px 8px 0;
+        }
+        .allergy-remove-btn {
+            border: none;
+            background: transparent;
+            color: #b91c1c;
+            font-weight: 700;
+            line-height: 1;
+            padding: 0;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -245,6 +323,16 @@ try {
         <?php if (isset($error_msg)): ?>
             <div class="alert alert-danger" role="alert">
                 <i class="fa-solid fa-triangle-exclamation me-2"></i><?php echo $error_msg; ?>
+            </div>
+        <?php endif; ?>
+        <?php if (!empty($allergy_success_msg)): ?>
+            <div class="alert alert-success" role="alert">
+                <i class="fa-solid fa-check me-2"></i><?php echo htmlspecialchars($allergy_success_msg); ?>
+            </div>
+        <?php endif; ?>
+        <?php if (!empty($allergy_error_msg)): ?>
+            <div class="alert alert-warning" role="alert">
+                <i class="fa-solid fa-circle-exclamation me-2"></i><?php echo htmlspecialchars($allergy_error_msg); ?>
             </div>
         <?php endif; ?>
 
@@ -351,9 +439,24 @@ try {
             <div class="col-md-6">
                 <div class="card card-custom p-4 h-100">
                     <h6 class="fw-bold mb-3 text-dark">Active Allergen Flag Logs</h6>
+                    <form method="POST" class="mb-3 d-flex gap-2">
+                        <input type="text" name="allergen_name" class="form-control" placeholder="Write allergen (e.g., Penicillin)" maxlength="100" required>
+                        <button type="submit" name="add_allergy" class="btn btn-outline-danger">Add</button>
+                    </form>
                     <div class="py-2">
-                        <span class="badge-allergy">Penicillin Compounds</span>
-                        <span class="badge-allergy">Sulphur Excipients</span>
+                        <?php if (!empty($patient_allergies)): ?>
+                            <?php foreach ($patient_allergies as $allergy): ?>
+                                <span class="allergy-pill">
+                                    <?php echo htmlspecialchars($allergy['allergen_name']); ?>
+                                    <form method="POST" class="d-inline m-0 p-0">
+                                        <input type="hidden" name="allergy_id" value="<?php echo (int)$allergy['id']; ?>">
+                                        <button type="submit" name="remove_allergy" class="allergy-remove-btn" aria-label="Remove allergen">x</button>
+                                    </form>
+                                </span>
+                            <?php endforeach; ?>
+                        <?php else: ?>
+                            <p class="text-muted small mb-0">No allergens added yet. Add your own entries above.</p>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -380,7 +483,7 @@ try {
                                         <?php foreach ($recent_records as $row): ?>
                                             <tr>
                                                 <td class="ps-4 fw-medium text-dark"><?php echo htmlspecialchars($row['visit_type']); ?></td>
-                                                <td><?php echo htmlspecialchars($row['hospital_name']); ?></td>
+                                                <td><?php echo htmlspecialchars($row['hospital_name'] ?? 'Central Medical Center'); ?></td>
                                                 <td class="pe-4 text-muted small"><?php echo htmlspecialchars($row['visit_date']); ?></td>
                                             </tr>
                                         <?php endforeach; ?>

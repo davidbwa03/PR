@@ -15,6 +15,14 @@ $stmt->execute(['id' => $doctor_id]);
 $doctor = $stmt->fetch(PDO::FETCH_ASSOC);
 $doctor_specialty = $doctor['specialty'] ?? 'General Practitioner';
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS patient_allergies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_id INT NOT NULL,
+    allergen_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_patient_allergen (patient_id, allergen_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 // Fetch all patients assigned to this doctor (approved by admin)
 $stmtPatients = $pdo->prepare("
     SELECT DISTINCT
@@ -23,7 +31,8 @@ $stmtPatients = $pdo->prepare("
            p.national_id,
            p.email       AS patient_email,
            ar.requested_at AS assigned_at,
-           (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count
+        (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count,
+        (SELECT COUNT(*) FROM patient_allergies WHERE patient_id = p.id) AS allergy_count
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
     WHERE ar.doctor_name = :dname
@@ -124,6 +133,10 @@ $total_patients = count($patients);
                     <span style="font-size:0.78rem; color:#16a34a; background:#dcfce7; padding:4px 10px; border-radius:20px; font-weight:600;">
                         <i class="fa-solid fa-file-medical"></i>
                         <?php echo $row['record_count']; ?> record<?php echo $row['record_count'] != 1 ? 's' : ''; ?>
+                    </span>
+                    <span style="font-size:0.78rem; color:#b91c1c; background:#fee2e2; padding:4px 10px; border-radius:20px; font-weight:600;">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <?php echo (int)$row['allergy_count']; ?> allergen<?php echo ((int)$row['allergy_count']) !== 1 ? 's' : ''; ?>
                     </span>
                     <a href="patient_records.php?patient_id=<?php echo $row['patient_id']; ?>"
                        style="display:inline-flex; align-items:center; gap:6px; padding:6px 14px; background:#0e7490; color:#fff; border-radius:8px; font-size:0.78rem; font-weight:600; text-decoration:none;">

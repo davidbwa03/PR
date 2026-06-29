@@ -53,8 +53,8 @@ try {
             ];
         }
 
-        // 2. Query all medical history records tied to this patient ID chronologically
-        $query = "SELECT * FROM medical_records WHERE patient_id = ? ORDER BY visit_date DESC";
+        // 2. Query medical history records (exclude vitals-only entries shown in Current Health)
+        $query = "SELECT * FROM medical_records WHERE patient_id = ? AND LOWER(COALESCE(visit_type, '')) NOT IN ('vitals check', 'vitals update') ORDER BY visit_date DESC";
         $stmt = $pdo->prepare($query);
         $stmt->execute([$patient_id]);
         $records = $stmt->fetchAll();
@@ -342,6 +342,12 @@ try {
                 .consent-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
                 .consent-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 6px; color: #0f172a; }
                 .consent-text { font-size: 0.84rem; color: #475569; margin-bottom: 0; white-space: pre-wrap; }
+                .consent-toggle summary { list-style: none; cursor: pointer; }
+                .consent-toggle summary::-webkit-details-marker { display: none; }
+                .consent-toggle .consent-title { margin-bottom: 0; display: flex; align-items: center; justify-content: space-between; }
+                .consent-arrow { font-size: 0.8rem; color: #64748b; transition: transform 0.2s ease; }
+                .consent-toggle[open] .consent-arrow { transform: rotate(180deg); }
+                .consent-body { margin-top: 10px; }
                 .consent-chip { display: inline-flex; align-items: center; font-size: 0.74rem; font-weight: 700; border-radius: 999px; padding: 4px 10px; margin-top: 8px; }
                 .consent-chip.allowed { background: #dcfce7; color: #166534; }
                 .consent-chip.blocked { background: #fef2f2; color: #991b1b; }
@@ -387,23 +393,35 @@ try {
                 <p class="consent-meta">No doctor summary has been published yet.</p>
             <?php endif; ?>
 
-            <div class="consent-box">
-                <p class="consent-title">Allergies Summary</p>
-                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['allergies_summary_text'] ?? ''); ?></p>
-            </div>
+            <details class="consent-box consent-toggle">
+                <summary>
+                    <p class="consent-title">Allergies Summary <i class="fa-solid fa-chevron-down consent-arrow"></i></p>
+                </summary>
+                <div class="consent-body">
+                    <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['allergies_summary_text'] ?? ''); ?></p>
+                </div>
+            </details>
 
-            <div class="consent-box">
-                <p class="consent-title">Chronic Diagnostic Logs</p>
-                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['chronic_diagnostic_logs_text'] ?? ''); ?></p>
-            </div>
+            <details class="consent-box consent-toggle">
+                <summary>
+                    <p class="consent-title">Chronic Diagnostic Logs <i class="fa-solid fa-chevron-down consent-arrow"></i></p>
+                </summary>
+                <div class="consent-body">
+                    <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['chronic_diagnostic_logs_text'] ?? ''); ?></p>
+                </div>
+            </details>
 
-            <div class="consent-box" style="margin-bottom: 0;">
-                <p class="consent-title">Surgical Typologies</p>
-                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['surgical_typologies_summary_text'] ?? ''); ?></p>
-                <?php if (!empty($privacy_consents['surgical_typologies_necessary'])): ?>
-                    <span class="consent-chip allowed">Necessary (Ticked by Doctor)</span>
-                <?php endif; ?>
-            </div>
+            <details class="consent-box consent-toggle" style="margin-bottom: 0;">
+                <summary>
+                    <p class="consent-title">Surgical Typologies <i class="fa-solid fa-chevron-down consent-arrow"></i></p>
+                </summary>
+                <div class="consent-body">
+                    <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['surgical_typologies_summary_text'] ?? ''); ?></p>
+                    <?php if (!empty($privacy_consents['surgical_typologies_necessary'])): ?>
+                        <span class="consent-chip allowed">Necessary (Ticked by Doctor)</span>
+                    <?php endif; ?>
+                </div>
+            </details>
         </div>
 
         <?php if (empty($records)): ?>

@@ -8,6 +8,22 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
 }
 
 $staff_name = isset($_SESSION['staff_name']) ? $_SESSION['staff_name'] : 'Hospital Staff';
+$staff_id = isset($_SESSION['staff_id']) ? (int) $_SESSION['staff_id'] : 0;
+$hospital_brand_name = 'Hospital';
+
+try {
+    if ($staff_id > 0) {
+        $stmt_hospital_name = $pdo->prepare("SELECT hospital_name FROM staff WHERE id = ? LIMIT 1");
+        $stmt_hospital_name->execute([$staff_id]);
+        $resolved_hospital_name = trim((string) $stmt_hospital_name->fetchColumn());
+        if ($resolved_hospital_name !== '') {
+            $hospital_brand_name = $resolved_hospital_name;
+        }
+    }
+} catch (PDOException $e) {
+    $hospital_brand_name = 'Hospital';
+}
+
 $success_msg = '';
 $error_msg = '';
 
@@ -17,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
     $heart_rate = trim($_POST['heart_rate'] ?? '');
     $temperature = trim($_POST['temperature'] ?? '');
     $vitals_date = trim($_POST['vitals_date'] ?? date('Y-m-d'));
-    $hospital_name = 'Central Medical Center';
+    $hospital_name = ($hospital_brand_name !== '') ? $hospital_brand_name : 'Central Medical Center';
     $notes = trim($_POST['notes'] ?? '');
 
     $patient_id = null;
@@ -144,7 +160,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save_vitals'])) {
         <div class="w-100">
             <div class="sidebar-brand">
                 <div class="brand-avatar">H</div>
-                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
+                <div class="brand-title"><h1><?= htmlspecialchars($hospital_brand_name); ?></h1><span>Portal</span></div>
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link">Overview</a>

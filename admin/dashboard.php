@@ -170,12 +170,8 @@ $pendingRequests = safeCount($pdo, "SELECT COUNT(*) FROM access_requests WHERE s
         <div class="nav-section">Hospitals</div>
         <a class="nav-link" href="add_hospital.php"><i class="fa-solid fa-plus me-2"></i>Add Hospital</a>
         <a class="nav-link" href="edit_hospitals.php"><i class="fa-solid fa-pen me-2"></i>Edit Hospitals</a>
+        <a class="nav-link" href="manage_hospitals.php"><i class="fa-solid fa-list me-2"></i>Manage Hospitals</a>
         <a class="nav-link" href="delete_hospitals.php"><i class="fa-solid fa-trash me-2"></i>Delete Hospitals</a>
-
-        <div class="nav-section">Staff Management</div>
-        <a class="nav-link" href="register_staff.php"><i class="fa-solid fa-user-plus me-2"></i>Register Hospital Staff</a>
-        <a class="nav-link" href="assign_staff.php"><i class="fa-solid fa-users-gear me-2"></i>Assign Staff to Hospitals</a>
-        <a class="nav-link" href="manage_staff_status.php"><i class="fa-solid fa-user-shield me-2"></i>Activate/Deactivate Staff</a>
 
         <div class="nav-section">Directory</div>
         <a class="nav-link" href="view_doctors.php"><i class="fa-solid fa-user-doctor me-2"></i>View All Doctors</a>
@@ -238,25 +234,19 @@ $pendingRequests = safeCount($pdo, "SELECT COUNT(*) FROM access_requests WHERE s
     <!-- Quick actions -->
     <h6 class="text-muted mb-3">Quick Actions</h6>
     <div class="row g-3">
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4 col-sm-6">
             <a href="add_hospital.php" class="action-card">
                 <i class="fa-solid fa-plus"></i>
                 <span>Add Hospital</span>
             </a>
         </div>
-        <div class="col-md-3 col-sm-6">
-            <a href="register_staff.php" class="action-card">
-                <i class="fa-solid fa-user-plus"></i>
-                <span>Register Staff</span>
-            </a>
-        </div>
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4 col-sm-6">
             <a href="access_requests.php" class="action-card">
                 <i class="fa-solid fa-folder-open"></i>
                 <span>Access Requests</span>
             </a>
         </div>
-        <div class="col-md-3 col-sm-6">
+        <div class="col-md-4 col-sm-6">
             <a href="reports.php" class="action-card">
                 <i class="fa-solid fa-chart-line"></i>
                 <span>Generate Reports</span>

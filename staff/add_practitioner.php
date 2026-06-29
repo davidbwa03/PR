@@ -9,17 +9,34 @@ if (!isset($_SESSION['staff_logged_in']) || $_SESSION['staff_logged_in'] !== tru
     exit();
 }
 
+$staff_id = isset($_SESSION['staff_id']) ? (int) $_SESSION['staff_id'] : 0;
+$hospital_brand_name = 'Hospital';
+
+try {
+    if ($staff_id > 0) {
+        $stmt_hospital_name = $pdo->prepare("SELECT hospital_name FROM staff WHERE id = ? LIMIT 1");
+        $stmt_hospital_name->execute([$staff_id]);
+        $resolved_hospital_name = trim((string) $stmt_hospital_name->fetchColumn());
+        if ($resolved_hospital_name !== '') {
+            $hospital_brand_name = $resolved_hospital_name;
+        }
+    }
+} catch (PDOException $e) {
+    $hospital_brand_name = 'Hospital';
+}
+
 $message = "";
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Sanitize and collect inputs
-    $name = $_POST['name'];
-    $specialty = $_POST['specialty'];
-    $email = $_POST['email'];
-    $password = password_hash($_POST['password'], PASSWORD_BCRYPT);
-    $phone = $_POST['phone'];
-    $dob = $_POST['dob'];
-    $gender = $_POST['gender'];
-    $address = $_POST['address'];
+    $name = trim($_POST['name'] ?? '');
+    $specialty = trim($_POST['specialty'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $password_raw = $_POST['password'] ?? '';
+    $password = password_hash($password_raw, PASSWORD_BCRYPT);
+    $phone = trim($_POST['phone'] ?? '');
+    $dob = trim($_POST['dob'] ?? '');
+    $gender = trim($_POST['gender'] ?? '');
+    $address = trim($_POST['address'] ?? '');
 
     try {
         // Insert into the 'doctors' table
@@ -62,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="w-100">
             <div class="sidebar-brand">
                 <div class="brand-avatar">H</div>
-                <div class="brand-title"><h1>Hospital Admin</h1><span>Portal</span></div>
+                <div class="brand-title"><h1><?= htmlspecialchars($hospital_brand_name); ?></h1><span>Portal</span></div>
             </div>
             <div class="sidebar-menu">
                 <a href="dashboard.php" class="menu-link">Overview</a>

@@ -10,7 +10,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($_POST['otp_input'] == $_SESSION['otp'] && time() < $_SESSION['otp_expiry']) {
         
         if ($_SESSION['purpose'] === 'login') {
+            $stmt = $pdo->prepare("SELECT id, practitioner_id, name, status FROM staff WHERE email = ? LIMIT 1");
+            $stmt->execute([$_SESSION['email']]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user || strtoupper((string) ($user['status'] ?? 'Active')) !== 'ACTIVE') {
+                unset($_SESSION['otp'], $_SESSION['email'], $_SESSION['purpose'], $_SESSION['otp_expiry']);
+                $_SESSION['login_error'] = "You have been deactivated.";
+                header("Location: login.php");
+                exit();
+            }
+
             $_SESSION['staff_logged_in'] = true; // Required for dashboard access
+            $_SESSION['staff_id'] = $user['id'];
+            $_SESSION['practitioner_id'] = $user['practitioner_id'];
+            $_SESSION['staff_name'] = $user['name'];
             header("Location: dashboard.php");
         } else {
             $stmt = $pdo->prepare("SELECT id FROM staff WHERE email = ?");

@@ -18,6 +18,14 @@ if (!empty($specialty)) {
     $doctor_specialty = $specialty;
 }
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS patient_allergies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_id INT NOT NULL,
+    allergen_name VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_patient_allergen (patient_id, allergen_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 // Validate patient_id from URL
 $patient_id = isset($_GET['patient_id']) ? (int)$_GET['patient_id'] : 0;
 if (!$patient_id) {
@@ -80,6 +88,10 @@ $presc_stmt = $pdo->prepare("
 ");
 $presc_stmt->execute([$patient_id]);
 $prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$allergy_stmt = $pdo->prepare("SELECT allergen_name FROM patient_allergies WHERE patient_id = ? ORDER BY created_at DESC, id DESC");
+$allergy_stmt->execute([$patient_id]);
+$allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -461,6 +473,27 @@ $prescriptions = $presc_stmt->fetchAll(PDO::FETCH_ASSOC);
             <span>Request Date: <strong><?php echo !empty($access_consent['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['requested_at']))) : 'N/A'; ?></strong></span>
             <span>Last Consent Update: <strong><?php echo !empty($access_consent['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['updated_at']))) : 'N/A'; ?></strong></span>
         </div>
+    </div>
+
+    <div class="consent-card">
+        <div class="consent-head">
+            <div class="consent-title">
+                <i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i>
+                Patient Allergies
+            </div>
+            <span class="consent-pill approved" style="background:#fee2e2; color:#b91c1c; border-color:#fecaca;">
+                <?php echo count($allergies); ?> allergen<?php echo count($allergies) !== 1 ? 's' : ''; ?>
+            </span>
+        </div>
+        <?php if (!empty($allergies)): ?>
+            <div class="consent-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+                <?php foreach ($allergies as $allergy): ?>
+                    <span><strong><?php echo htmlspecialchars($allergy['allergen_name']); ?></strong></span>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <span style="font-size:0.82rem; color:#64748b;">No allergies have been added by this patient yet.</span>
+        <?php endif; ?>
     </div>
 
     <div class="section-title">

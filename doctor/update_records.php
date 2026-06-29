@@ -127,6 +127,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($form_type === 'medical_record') {
         $visit_type    = trim($_POST['visit_type']    ?? '');
         $hospital_name = 'Central Medical Center';
+        try {
+            $stmt_facility = $pdo->prepare(
+                "SELECT medical_facility
+                 FROM access_requests ar
+                 JOIN doctors d ON d.name = ar.doctor_name
+                 WHERE d.id = :did
+                   AND ar.patient_id = :pid
+                   AND ar.request_status = 'approved'
+                   AND ar.records_sent = 1
+                   AND ar.medical_facility IS NOT NULL
+                   AND TRIM(ar.medical_facility) <> ''
+                 ORDER BY ar.updated_at DESC, ar.id DESC
+                 LIMIT 1"
+            );
+            $stmt_facility->execute(['did' => $doctor_id, 'pid' => $patient_id]);
+            $resolved_facility = trim((string) $stmt_facility->fetchColumn());
+            if ($resolved_facility !== '') {
+                $hospital_name = $resolved_facility;
+            }
+        } catch (PDOException $e) {
+            $hospital_name = 'Central Medical Center';
+        }
         $visit_date    = trim($_POST['visit_date']    ?? '');
         $notes         = trim($_POST['notes']         ?? '');
         $diagnosis     = trim($_POST['diagnosis']     ?? '');

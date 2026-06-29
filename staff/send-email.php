@@ -16,6 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute([$email]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        if ($user && strtoupper((string) ($user['status'] ?? 'Active')) !== 'ACTIVE') {
+            $_SESSION['login_error'] = "You have been deactivated.";
+            header("Location: login.php");
+            exit();
+        }
+
         if ($user && password_verify($password, $user['password'])) {
             $otp = rand(100000, 999999);
             $_SESSION['otp'] = $otp;
