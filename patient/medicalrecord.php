@@ -22,6 +22,37 @@ try {
         $patient_id = $patient['id'];
         $patient_name = $patient['name'];
 
+        $pdo->exec("CREATE TABLE IF NOT EXISTS patient_privacy_consents (
+            patient_id INT NOT NULL PRIMARY KEY,
+            allergies_summary_text TEXT NULL,
+            chronic_diagnostic_logs_text TEXT NULL,
+            surgical_typologies_summary_text TEXT NULL,
+            surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0,
+            authored_by_doctor_id INT NULL,
+            authored_by_doctor_name VARCHAR(255) NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN allergies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+        try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN chronic_diagnostic_logs_text TEXT NULL"); } catch (PDOException $e) {}
+        try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+        try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0"); } catch (PDOException $e) {}
+        try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_name VARCHAR(255) NULL"); } catch (PDOException $e) {}
+
+        $consentStmt = $pdo->prepare("SELECT allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_name, updated_at FROM patient_privacy_consents WHERE patient_id = ? LIMIT 1");
+        $consentStmt->execute([$patient_id]);
+        $privacy_consents = $consentStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$privacy_consents) {
+            $privacy_consents = [
+                'allergies_summary_text' => 'No doctor summary provided yet.',
+                'chronic_diagnostic_logs_text' => 'No doctor summary provided yet.',
+                'surgical_typologies_summary_text' => 'No doctor summary provided yet.',
+                'surgical_typologies_necessary' => 0,
+                'authored_by_doctor_name' => null,
+                'updated_at' => null,
+            ];
+        }
+
         // 2. Query all medical history records tied to this patient ID chronologically
         $query = "SELECT * FROM medical_records WHERE patient_id = ? ORDER BY visit_date DESC";
         $stmt = $pdo->prepare($query);
@@ -299,6 +330,21 @@ try {
             border: 1px solid #e2e8f0;
             color: #64748b;
         }
+
+                .consent-card {
+                    background: #ffffff;
+                    border: 1px solid #e2e8f0;
+                    border-radius: 16px;
+                    padding: 24px;
+                    margin-bottom: 24px;
+                }
+                .consent-meta { font-size: 0.78rem; color: #64748b; margin-bottom: 12px; }
+                .consent-box { border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin-bottom: 12px; }
+                .consent-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 6px; color: #0f172a; }
+                .consent-text { font-size: 0.84rem; color: #475569; margin-bottom: 0; white-space: pre-wrap; }
+                .consent-chip { display: inline-flex; align-items: center; font-size: 0.74rem; font-weight: 700; border-radius: 999px; padding: 4px 10px; margin-top: 8px; }
+                .consent-chip.allowed { background: #dcfce7; color: #166534; }
+                .consent-chip.blocked { background: #fef2f2; color: #991b1b; }
     </style>
 </head>
 <body>
@@ -331,6 +377,33 @@ try {
         <div class="workspace-header">
             <h2 class="fw-bold mb-1">Medical Records Across All Hospitals</h2>
             <p class="text-muted small">Complete history from all healthcare providers</p>
+        </div>
+
+        <div class="consent-card">
+            <h3 class="section-title" style="margin-top: 0;">Doctor-Written Privacy Consent Summaries</h3>
+            <?php if (!empty($privacy_consents['authored_by_doctor_name'])): ?>
+                <p class="consent-meta">Written by Dr. <?php echo htmlspecialchars($privacy_consents['authored_by_doctor_name']); ?><?php if (!empty($privacy_consents['updated_at'])): ?> on <?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($privacy_consents['updated_at']))); ?><?php endif; ?>.</p>
+            <?php else: ?>
+                <p class="consent-meta">No doctor summary has been published yet.</p>
+            <?php endif; ?>
+
+            <div class="consent-box">
+                <p class="consent-title">Allergies Summary</p>
+                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['allergies_summary_text'] ?? ''); ?></p>
+            </div>
+
+            <div class="consent-box">
+                <p class="consent-title">Chronic Diagnostic Logs</p>
+                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['chronic_diagnostic_logs_text'] ?? ''); ?></p>
+            </div>
+
+            <div class="consent-box" style="margin-bottom: 0;">
+                <p class="consent-title">Surgical Typologies</p>
+                <p class="consent-text"><?php echo htmlspecialchars($privacy_consents['surgical_typologies_summary_text'] ?? ''); ?></p>
+                <?php if (!empty($privacy_consents['surgical_typologies_necessary'])): ?>
+                    <span class="consent-chip allowed">Necessary (Ticked by Doctor)</span>
+                <?php endif; ?>
+            </div>
         </div>
 
         <?php if (empty($records)): ?>

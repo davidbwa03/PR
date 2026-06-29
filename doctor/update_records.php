@@ -18,6 +18,24 @@ $stmtDoc->execute(['id' => $doctor_id]);
 $doctor = $stmtDoc->fetch(PDO::FETCH_ASSOC);
 $doctor_specialty = $doctor['specialty'] ?? 'General Practitioner';
 
+$pdo->exec("CREATE TABLE IF NOT EXISTS patient_privacy_consents (
+    patient_id INT NOT NULL PRIMARY KEY,
+    allergies_summary_text TEXT NULL,
+    chronic_diagnostic_logs_text TEXT NULL,
+    surgical_typologies_summary_text TEXT NULL,
+    surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0,
+    authored_by_doctor_id INT NULL,
+    authored_by_doctor_name VARCHAR(255) NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN allergies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN chronic_diagnostic_logs_text TEXT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_id INT NULL"); } catch (PDOException $e) {}
+try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_name VARCHAR(255) NULL"); } catch (PDOException $e) {}
+
 // Fetch all patients approved/assigned to this doctor by the admin
 // Join via doctors table using doctor_id to avoid session name mismatch
 $stmt_patients = $pdo->prepare("
@@ -38,6 +56,14 @@ $selected_id      = (int)($_GET['patient_id'] ?? 0);
 $selected_patient = null;
 $recent_records   = [];
 $recent_prescriptions = [];
+$privacy_consents = [
+    'allergies_summary_text' => '',
+    'chronic_diagnostic_logs_text' => '',
+    'surgical_typologies_summary_text' => '',
+    'surgical_typologies_necessary' => 0,
+    'authored_by_doctor_name' => null,
+    'updated_at' => null,
+];
 
 if ($selected_id > 0) {
     foreach ($approved_patients as $ap) {
@@ -48,6 +74,13 @@ if ($selected_id > 0) {
     }
 
     if ($selected_patient) {
+        $stmt_consents = $pdo->prepare("SELECT allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_name, updated_at FROM patient_privacy_consents WHERE patient_id = :pid LIMIT 1");
+        $stmt_consents->execute(['pid' => $selected_id]);
+        $loaded_consents = $stmt_consents->fetch(PDO::FETCH_ASSOC);
+        if ($loaded_consents) {
+            $privacy_consents = $loaded_consents;
+        }
+
         $stmt_recent_records = $pdo->prepare("
             SELECT visit_type, hospital_name, visit_date, diagnosis, treatment
             FROM medical_records
@@ -142,6 +175,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'doc'   => $doctor_name,
             ]);
             $success_msg = "Prescription added successfully.";
+        }
+    } elseif ($form_type === 'privacy_consent') {
+        $allergies_summary_text = trim($_POST['allergies_summary_text'] ?? '');
+        $chronic_diagnostic_logs_text = trim($_POST['chronic_diagnostic_logs_text'] ?? '');
+        $surgical_typologies_summary_text = trim($_POST['surgical_typologies_summary_text'] ?? '');
+        $surgical_typologies_necessary = 0;
+
+        if ($allergies_summary_text === '' || $chronic_diagnostic_logs_text === '' || $surgical_typologies_summary_text === '') {
+            $error_msg = "Please write all required privacy summaries before saving.";
+        } else {
+            $stmt_consent_upsert = $pdo->prepare("
+                INSERT INTO patient_privacy_consents
+                    (patient_id, allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_id, authored_by_doctor_name)
+                VALUES
+                    (:patient_id, :allergies_summary_text, :chronic_diagnostic_logs_text, :surgical_typologies_summary_text, :surgical_typologies_necessary, :doctor_id, :doctor_name)
+                ON DUPLICATE KEY UPDATE
+                    allergies_summary_text = VALUES(allergies_summary_text),
+                    chronic_diagnostic_logs_text = VALUES(chronic_diagnostic_logs_text),
+                    surgical_typologies_summary_text = VALUES(surgical_typologies_summary_text),
+                    surgical_typologies_necessary = VALUES(surgical_typologies_necessary),
+                    authored_by_doctor_id = VALUES(authored_by_doctor_id),
+                    authored_by_doctor_name = VALUES(authored_by_doctor_name)
+            ");
+            $stmt_consent_upsert->execute([
+                'patient_id' => $patient_id,
+                'allergies_summary_text' => $allergies_summary_text,
+                'chronic_diagnostic_logs_text' => $chronic_diagnostic_logs_text,
+                'surgical_typologies_summary_text' => $surgical_typologies_summary_text,
+                'surgical_typologies_necessary' => $surgical_typologies_necessary,
+                'doctor_id' => $doctor_id,
+                'doctor_name' => $doctor_name,
+            ]);
+
+            if ($selected_id === $patient_id) {
+                $privacy_consents = [
+                    'allergies_summary_text' => '',
+                    'chronic_diagnostic_logs_text' => '',
+                    'surgical_typologies_summary_text' => '',
+                    'surgical_typologies_necessary' => 0,
+                    'authored_by_doctor_name' => $doctor_name,
+                    'updated_at' => date('Y-m-d H:i:s'),
+                ];
+            }
+
+            $success_msg = "Privacy consent summaries saved successfully. The form has been cleared.";
         }
     }
 }
@@ -329,6 +407,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </button>
             </form>
         </div>
+    </div>
+
+    <div class="form-card <?php echo !$selected_patient ? 'disabled-overlay' : ''; ?>" style="margin-bottom: 24px;">
+        <h5 style="font-size:0.95rem; font-weight:600; color:#0f172a; margin-bottom:18px;">
+            <i class="fa-solid fa-shield-halved" style="color:#0e7490; margin-right:8px;"></i> Privacy Consent Summaries
+        </h5>
+        <p style="font-size:0.82rem; color:#64748b; margin-bottom:14px;">
+            Write clear summaries for patient privacy controls.
+        </p>
+        <form method="POST">
+            <input type="hidden" name="form_type" value="privacy_consent">
+            <input type="hidden" name="patient_id" value="<?php echo $selected_id; ?>">
+
+            <div class="field">
+                <label>Allergies Summary <span style="color:#dc2626;">*</span></label>
+                <textarea name="allergies_summary_text" rows="3" placeholder="Write allergy-related privacy summary..." required></textarea>
+            </div>
+
+            <div class="field">
+                <label>Chronic Diagnostic Logs <span style="color:#dc2626;">*</span></label>
+                <textarea name="chronic_diagnostic_logs_text" rows="3" placeholder="Write chronic diagnostics privacy summary..." required></textarea>
+            </div>
+
+            <div class="field">
+                <label>Surgical Typologies Summary <span style="color:#dc2626;">*</span></label>
+                <textarea name="surgical_typologies_summary_text" rows="3" placeholder="Write surgical typologies privacy summary..." required></textarea>
+            </div>
+
+            <button type="submit" class="btn-submit">
+                <i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i> Save Privacy Summaries
+            </button>
+        </form>
+        <?php if (!empty($privacy_consents['authored_by_doctor_name'])): ?>
+            <p style="font-size:0.76rem; color:#64748b; margin-top:12px; margin-bottom:0;">
+                Last updated by Dr. <?php echo htmlspecialchars($privacy_consents['authored_by_doctor_name']); ?>
+                <?php if (!empty($privacy_consents['updated_at'])): ?>on <?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($privacy_consents['updated_at']))); ?><?php endif; ?>.
+            </p>
+        <?php endif; ?>
     </div>
 
     <!-- Recent Records Preview (only when patient is selected) -->

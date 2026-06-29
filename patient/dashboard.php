@@ -11,6 +11,39 @@ require_once 'db.php';
 try {
     $patient_id = $_SESSION['user_id']; 
 
+    $pdo->exec("CREATE TABLE IF NOT EXISTS patient_privacy_consents (
+        patient_id INT NOT NULL PRIMARY KEY,
+        allergies_summary_text TEXT NULL,
+        chronic_diagnostic_logs_text TEXT NULL,
+        surgical_typologies_summary_text TEXT NULL,
+        surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0,
+        authored_by_doctor_id INT NULL,
+        authored_by_doctor_name VARCHAR(255) NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN allergies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN chronic_diagnostic_logs_text TEXT NULL"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_summary_text TEXT NULL"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN surgical_typologies_necessary TINYINT(1) NOT NULL DEFAULT 0"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_id INT NULL"); } catch (PDOException $e) {}
+    try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_doctor_name VARCHAR(255) NULL"); } catch (PDOException $e) {}
+
+    $stmt_consents = $pdo->prepare("SELECT allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_name, updated_at FROM patient_privacy_consents WHERE patient_id = :patient_id LIMIT 1");
+    $stmt_consents->execute(['patient_id' => $patient_id]);
+    $privacy_consents = $stmt_consents->fetch(PDO::FETCH_ASSOC);
+
+    if (!$privacy_consents) {
+        $privacy_consents = [
+            'allergies_summary_text' => 'No doctor summary provided yet.',
+            'chronic_diagnostic_logs_text' => 'No doctor summary provided yet.',
+            'surgical_typologies_summary_text' => 'No doctor summary provided yet.',
+            'surgical_typologies_necessary' => 0,
+            'authored_by_doctor_name' => null,
+            'updated_at' => null,
+        ];
+    }
+
     // 1. ✅ FIXED: Count accepted doctors from access_requests (matches privacy_settings.php)
     $stmt_docs = $pdo->prepare("SELECT COUNT(*) AS total_doctors FROM access_requests WHERE patient_id = :patient_id AND request_status = 'approved'");
     $stmt_docs->execute(['patient_id' => $patient_id]);
@@ -127,11 +160,49 @@ try {
         .control-row {
             background-color: #ffffff; border: 1px solid #f1f5f9;
             border-radius: 12px; padding: 14px 20px;
-            display: flex; align-items: center; justify-content: space-between;
+            display: block;
             margin-bottom: 12px;
         }
+        .control-row summary {
+            list-style: none;
+            cursor: pointer;
+        }
+        .control-row summary::-webkit-details-marker {
+            display: none;
+        }
+        .control-row .summary-title {
+            margin-bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .expand-icon {
+            color: #64748b;
+            font-size: 0.8rem;
+            transition: transform 0.2s ease;
+        }
+        .control-row[open] .expand-icon {
+            transform: rotate(180deg);
+        }
+        .control-content {
+            margin-top: 10px;
+        }
 
-        .form-check-input:checked { background-color: #22c55e; border-color: #22c55e; }
+        .summary-title { font-size: 0.9rem; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+        .summary-text { font-size: 0.84rem; color: #475569; margin-bottom: 0; white-space: pre-wrap; }
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        .status-chip.allowed { background: #dcfce7; color: #166534; }
+        .status-chip.blocked { background: #fef2f2; color: #991b1b; }
+        .authored-meta { font-size: 0.78rem; color: #64748b; margin-bottom: 14px; }
 
         .badge-allergy {
             background-color: #fee2e2; color: #ef4444;
@@ -215,42 +286,44 @@ try {
                 <i class="fa-solid fa-shield-halved text-info"></i>
                 <h5 class="fw-bold mb-0">Privacy Consent Controls</h5>
             </div>
-            <p class="text-muted small mb-4">Configure information exposure levels across external healthcare facility platforms</p>
+            <p class="text-muted small mb-2">Doctor-written privacy summaries visible to you.</p>
+            <?php if (!empty($privacy_consents['authored_by_doctor_name'])): ?>
+                <p class="authored-meta">Written by Dr. <?php echo htmlspecialchars($privacy_consents['authored_by_doctor_name']); ?><?php if (!empty($privacy_consents['updated_at'])): ?> on <?php echo htmlspecialchars(date('Y-m-d H:i', strtotime($privacy_consents['updated_at']))); ?><?php endif; ?>.</p>
+            <?php else: ?>
+                <p class="authored-meta">No doctor summary has been published yet.</p>
+            <?php endif; ?>
 
             <div class="row">
                 <div class="col-md-6">
-                    <div class="control-row">
-                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Allergies Summary</span>
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                    <details class="control-row">
+                        <summary>
+                            <p class="summary-title"><span><i class="fa-solid fa-file-lines text-success me-2"></i>Allergies Summary</span><i class="fa-solid fa-chevron-down expand-icon"></i></p>
+                        </summary>
+                        <div class="control-content">
+                            <p class="summary-text"><?php echo htmlspecialchars($privacy_consents['allergies_summary_text'] ?? ''); ?></p>
                         </div>
-                    </div>
-                    <div class="control-row">
-                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Chronic Diagnostic Logs</span>
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                    </details>
+                    <details class="control-row">
+                        <summary>
+                            <p class="summary-title"><span><i class="fa-solid fa-file-lines text-success me-2"></i>Chronic Diagnostic Logs</span><i class="fa-solid fa-chevron-down expand-icon"></i></p>
+                        </summary>
+                        <div class="control-content">
+                            <p class="summary-text"><?php echo htmlspecialchars($privacy_consents['chronic_diagnostic_logs_text'] ?? ''); ?></p>
                         </div>
-                    </div>
-                    <div class="control-row">
-                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Surgical Typologies</span>
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" role="switch" checked>
-                        </div>
-                    </div>
+                    </details>
                 </div>
                 <div class="col-md-6">
-                    <div class="control-row">
-                        <span class="fw-medium"><i class="fa-solid fa-eye text-success me-2"></i> Active Prescription Tracking</span>
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" role="switch" checked>
+                    <details class="control-row">
+                        <summary>
+                            <p class="summary-title"><span><i class="fa-solid fa-file-lines text-success me-2"></i>Surgical Typologies</span><i class="fa-solid fa-chevron-down expand-icon"></i></p>
+                        </summary>
+                        <div class="control-content">
+                            <p class="summary-text"><?php echo htmlspecialchars($privacy_consents['surgical_typologies_summary_text'] ?? ''); ?></p>
+                            <?php if (!empty($privacy_consents['surgical_typologies_necessary'])): ?>
+                                <span class="status-chip allowed">Necessary (Ticked by Doctor)</span>
+                            <?php endif; ?>
                         </div>
-                    </div>
-                    <div class="control-row" style="background-color: #f8fafc; border-color: #e2e8f0;">
-                        <span class="fw-medium text-muted"><i class="fa-solid fa-eye-slash text-secondary me-2"></i> Sensitive Mental Health Summary</span>
-                        <div class="form-check form-switch mb-0">
-                            <input class="form-check-input" type="checkbox" role="switch">
-                        </div>
-                    </div>
+                    </details>
                 </div>
             </div>
         </div>
