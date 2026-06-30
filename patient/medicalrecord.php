@@ -90,20 +90,11 @@ try {
             --border-light: #e2e8f0;
         }
 
-        /* Base Reset Layout System Configurations */
-        html, body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            background-color: var(--bg-light);
-            color: var(--text-dark);
-        }
-
         body {
-            display: flex;
+            background-color: var(--bg-light);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            -webkit-font-smoothing: antialiased;
+            color: var(--text-dark);
+            overflow-x: hidden;
         }
         
         /* --- EXACT IDENTICAL DASHBOARD SIDEBAR STRUCTURE --- */
@@ -156,8 +147,8 @@ try {
             gap: 12px;
             width: 100%;
             padding: 12px 16px;
-            background-color: transparent;
-            color: #64748b;
+            background-color: var(--shif-teal);
+            color: white;
             border: none;
             border-radius: 8px;
             font-weight: 500;
@@ -166,20 +157,14 @@ try {
             transition: all 0.2s ease;
         }
 
-        .menu-btn.active {
-            background-color: var(--shif-teal); /* Solid teal tone toggle */
-            color: white !important;
-        }
+        .menu-btn.secondary { background-color: transparent; color: #64748b; }
 
         .menu-btn:hover {
-            background-color: #f1f5f9;
-            color: var(--text-dark);
-        }
-
-        .menu-btn.active:hover {
             background-color: var(--shif-teal-hover);
             color: white;
         }
+
+        .menu-btn.secondary:hover { background-color: #f1f5f9; color: var(--text-dark); }
 
         .logout-btn {
             margin-top: auto;
@@ -199,13 +184,10 @@ try {
             color: #ef4444;
         }
 
-        /* --- MAIN WORKSPACE OFFSET FRAME --- */
-        .main-workspace {
+        .main-content {
             margin-left: var(--sidebar-width);
-            flex: 1;
             padding: 40px;
-            box-sizing: border-box;
-            max-width: 1200px;
+            min-height: 100vh;
         }
 
         .workspace-header {
@@ -367,10 +349,10 @@ try {
         </div>
 
         <div class="sidebar-menu">
-            <a href="dashboard.php" class="menu-btn"><i class="fa-solid fa-chart-pie"></i> Dashboard</a>
-            <a href="medicalrecord.php" class="menu-btn active"><i class="fa-solid fa-file-medical"></i> Medical Records</a>
-            <a href="privacy_settings.php" class="menu-btn"><i class="fa-solid fa-shield-halved"></i> Privacy Settings</a>
-            <a href="current_health.php" class="menu-btn"><i class="fa-solid fa-heart-pulse"></i> Current Health</a>
+            <a href="dashboard.php" class="menu-btn secondary"><i class="fa-solid fa-chart-pie"></i>Dashboard</a>
+            <a href="medicalrecord.php" class="menu-btn"><i class="fa-solid fa-file-medical"></i>Medical Records</a>
+            <a href="privacy_settings.php" class="menu-btn secondary"><i class="fa-solid fa-shield-halved"></i>Privacy Settings</a>
+            <a href="current_health.php" class="menu-btn secondary"><i class="fa-solid fa-heart-pulse"></i>Current Health</a>
         </div>
 
         <a href="logout.php" class="logout-btn">
@@ -378,7 +360,7 @@ try {
         </a>
     </div>
 
-    <div class="main-workspace">
+    <div class="main-content">
         
         <div class="workspace-header">
             <h2 class="fw-bold mb-1">Medical Records Across All Hospitals</h2>
