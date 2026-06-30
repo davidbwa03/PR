@@ -3,7 +3,7 @@ session_start();
 require_once 'db.php';
 
 if (!isset($_SESSION['insurer_2fa_pending']) || empty($_SESSION['insurer_id'])) {
-    header("Location: insurer-login.php");
+    header("Location: login.php");
     exit();
 }
 
@@ -35,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $_SESSION['insurer_2fa_verified'] = true;
             unset($_SESSION['insurer_2fa_pending'], $_SESSION['insurer_2fa_attempts']);
 
-            header("Location: insurer-dashboard.php");
+            header("Location: dashboard.php");
             exit();
         } else {
             $_SESSION['insurer_2fa_attempts']++;
@@ -188,7 +188,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="insurer-verify-2fa.php" autocomplete="off">
+    <form method="POST" action="verify-2fa.php" autocomplete="off">
 
         <div class="field">
             <input

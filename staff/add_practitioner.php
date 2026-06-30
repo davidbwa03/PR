@@ -88,6 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <a href="update_vitals.php" class="menu-link">Update Patient Vitals</a>
                 <a href="add_practitioner.php" class="menu-link active">Add Practitioners</a>
                 <a href="manage_practitioners.php" class="menu-link">Manage Doctors</a>
+                <a href="create_claim.php" class="menu-link">Create the claim</a>
                 <a href="analytics.php" class="menu-link">Analytics</a>
             </div>
         </div>

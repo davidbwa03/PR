@@ -34,7 +34,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
             sendOTP($insurer['email'], $insurer['name'], $otp_code);
 
-            header("Location: insurer-verify-2fa.php");
+            header("Location: verify-2fa.php");
             exit();
         } else {
             $error = "Invalid login credentials.";
@@ -188,7 +188,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         </div>
     <?php endif; ?>
 
-    <form method="POST" action="insurer-login.php" autocomplete="off">
+    <form method="POST" action="login.php" autocomplete="off">
 
         <div class="field">
             <input

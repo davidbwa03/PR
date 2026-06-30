@@ -1,3 +1,346 @@
+<?php
+require_once 'db.php';
+
+function safeCount(PDO $pdo, string $sql): int
+{
+  try {
+    return (int) $pdo->query($sql)->fetchColumn();
+  } catch (PDOException $e) {
+    return 0;
+  }
+}
+
+function hasColumn(PDO $pdo, string $table, string $column): bool
+{
+  try {
+    $stmt = $pdo->prepare("SHOW COLUMNS FROM {$table} LIKE ?");
+    $stmt->execute([$column]);
+    return (bool) $stmt->fetch();
+  } catch (PDOException $e) {
+    return false;
+  }
+}
+
+function hasTable(PDO $pdo, string $table): bool
+{
+  try {
+    $stmt = $pdo->prepare("SHOW TABLES LIKE ?");
+    $stmt->execute([$table]);
+    return (bool) $stmt->fetchColumn();
+  } catch (PDOException $e) {
+    return false;
+  }
+}
+
+function firstExistingTable(PDO $pdo, array $candidates): ?string
+{
+  foreach ($candidates as $table) {
+    if (hasTable($pdo, $table)) {
+      return $table;
+    }
+  }
+  return null;
+}
+
+function firstExistingColumn(PDO $pdo, string $table, array $candidates): ?string
+{
+  foreach ($candidates as $column) {
+    if (hasColumn($pdo, $table, $column)) {
+      return $column;
+    }
+  }
+  return null;
+}
+
+function mapStatusClass(string $status): string
+{
+  $value = strtolower(trim($status));
+  if ($value === 'approved') {
+    return 'approved';
+  }
+  if ($value === 'rejected' || $value === 'declined') {
+    return 'rejected';
+  }
+  return 'pending';
+}
+
+function getRecentClaims(PDO $pdo, int $limit = 5): array
+{
+  $table = firstExistingTable($pdo, ['claims', 'insurance_claims', 'hospital_claims']);
+  if ($table === null) {
+    return [];
+  }
+
+  $claimIdCol = firstExistingColumn($pdo, $table, ['claim_id', 'claim_number', 'reference_no', 'id']);
+  $hospitalCol = firstExistingColumn($pdo, $table, ['hospital_name', 'hospital', 'medical_facility', 'facility_name']);
+  $hospitalIdCol = firstExistingColumn($pdo, $table, ['hospital_id']);
+  $amountCol = firstExistingColumn($pdo, $table, ['amount', 'claim_amount', 'total_amount']);
+  $statusCol = firstExistingColumn($pdo, $table, ['status', 'claim_status']);
+  $patientCol = firstExistingColumn($pdo, $table, ['patient_name', 'patient']);
+  $patientIdCol = firstExistingColumn($pdo, $table, ['patient_id']);
+  $dateCol = firstExistingColumn($pdo, $table, ['created_at', 'submitted_at', 'claim_date', 'updated_at']);
+
+  if ($claimIdCol === null || $amountCol === null || $statusCol === null) {
+    return [];
+  }
+
+  $orderCol = $dateCol ?? $claimIdCol;
+
+  $hospitalSelect = "'N/A'";
+  $joinSql = '';
+  if ($hospitalCol !== null) {
+    $hospitalSelect = "`{$hospitalCol}`";
+  } elseif ($hospitalIdCol !== null && hasTable($pdo, 'hospitals')) {
+    $hospitalSelect = "COALESCE(h.name, 'N/A')";
+    $joinSql = " LEFT JOIN hospitals h ON c.`{$hospitalIdCol}` = h.id";
+  }
+
+  $sql = "SELECT c.`{$claimIdCol}` AS claim_id, {$hospitalSelect} AS hospital_name, c.`{$amountCol}` AS claim_amount, c.`{$statusCol}` AS claim_status";
+  if ($patientCol !== null) {
+    $sql .= ", c.`{$patientCol}` AS patient_name";
+  }
+  if ($patientIdCol !== null) {
+    $sql .= ", c.`{$patientIdCol}` AS patient_id";
+  }
+  $sql .= " FROM `{$table}` c{$joinSql} ORDER BY c.`{$orderCol}` DESC LIMIT " . (int) $limit;
+
+  try {
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    return is_array($rows) ? $rows : [];
+  } catch (PDOException $e) {
+    return [];
+  }
+}
+
+function getClaimsStatusBreakdown(PDO $pdo): array
+{
+  $result = [
+    'approved' => 0,
+    'pending' => 0,
+    'rejected' => 0,
+    'total' => 0,
+  ];
+
+  $table = firstExistingTable($pdo, ['claims', 'insurance_claims', 'hospital_claims']);
+  if ($table === null) {
+    return $result;
+  }
+
+  $statusCol = firstExistingColumn($pdo, $table, ['status', 'claim_status']);
+  if ($statusCol === null) {
+    return $result;
+  }
+
+  $sql = "SELECT `{$statusCol}` AS claim_status, COUNT(*) AS total FROM `{$table}` GROUP BY `{$statusCol}`";
+
+  try {
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($rows as $row) {
+      $count = (int) ($row['total'] ?? 0);
+      $bucket = mapStatusClass((string) ($row['claim_status'] ?? 'pending'));
+      if (!isset($result[$bucket])) {
+        $bucket = 'pending';
+      }
+      $result[$bucket] += $count;
+      $result['total'] += $count;
+    }
+  } catch (PDOException $e) {
+    return $result;
+  }
+
+  return $result;
+}
+
+function getClaimMetrics(PDO $pdo): array
+{
+  $metrics = [
+    'total' => 0,
+    'pending' => 0,
+    'approved' => 0,
+    'rejected' => 0,
+    'total_amount' => 0.0,
+    'this_month' => 0,
+    'has_claims' => false,
+  ];
+
+  $table = firstExistingTable($pdo, ['claims', 'insurance_claims', 'hospital_claims']);
+  if ($table === null) {
+    return $metrics;
+  }
+
+  $metrics['has_claims'] = true;
+  $statusCol = firstExistingColumn($pdo, $table, ['status', 'claim_status']);
+  $amountCol = firstExistingColumn($pdo, $table, ['amount', 'claim_amount', 'total_amount']);
+  $dateCol = firstExistingColumn($pdo, $table, ['created_at', 'submitted_at', 'claim_date', 'updated_at']);
+
+  $metrics['total'] = safeCount($pdo, "SELECT COUNT(*) FROM `{$table}`");
+
+  if ($statusCol !== null) {
+    try {
+      $sql = "SELECT `{$statusCol}` AS claim_status, COUNT(*) AS total FROM `{$table}` GROUP BY `{$statusCol}`";
+      $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+      foreach ($rows as $row) {
+        $bucket = mapStatusClass((string) ($row['claim_status'] ?? 'pending'));
+        $count = (int) ($row['total'] ?? 0);
+        if (isset($metrics[$bucket])) {
+          $metrics[$bucket] += $count;
+        }
+      }
+    } catch (PDOException $e) {
+      // Keep defaults on query issues.
+    }
+  }
+
+  if ($amountCol !== null) {
+    try {
+      $sumSql = "SELECT COALESCE(SUM(`{$amountCol}`), 0) FROM `{$table}`";
+      $metrics['total_amount'] = (float) $pdo->query($sumSql)->fetchColumn();
+    } catch (PDOException $e) {
+      $metrics['total_amount'] = 0.0;
+    }
+  }
+
+  if ($dateCol !== null) {
+    try {
+      $monthSql = "SELECT COUNT(*) FROM `{$table}` WHERE YEAR(`{$dateCol}`) = YEAR(CURDATE()) AND MONTH(`{$dateCol}`) = MONTH(CURDATE())";
+      $metrics['this_month'] = (int) $pdo->query($monthSql)->fetchColumn();
+    } catch (PDOException $e) {
+      $metrics['this_month'] = 0;
+    }
+  }
+
+  return $metrics;
+}
+
+function getTopHospitalsByClaims(PDO $pdo, int $limit = 4): array
+{
+  $table = firstExistingTable($pdo, ['claims', 'insurance_claims', 'hospital_claims']);
+  if ($table === null) {
+    return [];
+  }
+
+  $hospitalCol = firstExistingColumn($pdo, $table, ['hospital_name', 'hospital', 'medical_facility', 'facility_name']);
+  $hospitalIdCol = firstExistingColumn($pdo, $table, ['hospital_id']);
+
+  if ($hospitalCol === null && $hospitalIdCol === null) {
+    return [];
+  }
+
+  if ($hospitalCol !== null) {
+    $sql = "SELECT `{$hospitalCol}` AS hospital_name, COUNT(*) AS claim_total
+            FROM `{$table}`
+            WHERE `{$hospitalCol}` IS NOT NULL AND `{$hospitalCol}` <> ''
+            GROUP BY `{$hospitalCol}`
+            ORDER BY claim_total DESC
+            LIMIT " . (int) $limit;
+  } elseif (hasTable($pdo, 'hospitals')) {
+    $sql = "SELECT COALESCE(h.name, 'N/A') AS hospital_name, COUNT(*) AS claim_total
+            FROM `{$table}` c
+            LEFT JOIN hospitals h ON c.`{$hospitalIdCol}` = h.id
+            GROUP BY COALESCE(h.name, 'N/A')
+            ORDER BY claim_total DESC
+            LIMIT " . (int) $limit;
+  } else {
+    return [];
+  }
+
+  try {
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+    return is_array($rows) ? $rows : [];
+  } catch (PDOException $e) {
+    return [];
+  }
+}
+
+function getAverageProcessingTimeDays(PDO $pdo): array
+{
+  $result = [
+    'days' => 0.0,
+    'has_data' => false,
+  ];
+
+  $table = firstExistingTable($pdo, ['claims', 'insurance_claims', 'hospital_claims']);
+  if ($table === null) {
+    return $result;
+  }
+
+  $submittedCol = firstExistingColumn($pdo, $table, ['submitted_at', 'created_at', 'claim_date']);
+  $processedCol = firstExistingColumn($pdo, $table, ['processed_at', 'approved_at', 'resolved_at', 'updated_at']);
+  $statusCol = firstExistingColumn($pdo, $table, ['status', 'claim_status']);
+
+  if ($submittedCol === null || $processedCol === null || $statusCol === null) {
+    return $result;
+  }
+
+  $sql = "SELECT AVG(TIMESTAMPDIFF(SECOND, `{$submittedCol}`, `{$processedCol}`)) / 86400 AS avg_days
+          FROM `{$table}`
+          WHERE `{$submittedCol}` IS NOT NULL
+            AND `{$processedCol}` IS NOT NULL
+            AND LOWER(`{$statusCol}`) IN ('approved', 'rejected', 'declined')";
+
+  try {
+    $avgDays = $pdo->query($sql)->fetchColumn();
+    if ($avgDays !== null) {
+      $result['days'] = max(0.0, (float) $avgDays);
+      $result['has_data'] = true;
+    }
+  } catch (PDOException $e) {
+    return $result;
+  }
+
+  return $result;
+}
+
+$registeredHospitals = safeCount($pdo, "SELECT COUNT(*) FROM hospitals");
+$newHospitalsThisMonth = 0;
+$registeredHospitalsSubtext = "Auto-updated from hospitals table";
+
+$registeredPatients = safeCount($pdo, "SELECT COUNT(*) FROM patients");
+$newPatientsThisMonth = 0;
+$registeredPatientsSubtext = "Auto-updated from patients table";
+
+if (hasColumn($pdo, 'hospitals', 'created_at')) {
+  $newHospitalsThisMonth = safeCount(
+    $pdo,
+    "SELECT COUNT(*) FROM hospitals WHERE YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())"
+  );
+  $registeredHospitalsSubtext = '+' . number_format($newHospitalsThisMonth) . ' this month';
+}
+
+if (hasColumn($pdo, 'patients', 'created_at')) {
+  $newPatientsThisMonth = safeCount(
+    $pdo,
+    "SELECT COUNT(*) FROM patients WHERE YEAR(created_at) = YEAR(CURDATE()) AND MONTH(created_at) = MONTH(CURDATE())"
+  );
+  $registeredPatientsSubtext = '+' . number_format($newPatientsThisMonth) . ' this month';
+}
+
+$recentClaims = getRecentClaims($pdo, 5);
+$claimMetrics = getClaimMetrics($pdo);
+$totalClaims = max(0, (int) ($claimMetrics['total'] ?? 0));
+$pendingClaims = max(0, (int) ($claimMetrics['pending'] ?? 0));
+$approvedClaims = max(0, (int) ($claimMetrics['approved'] ?? 0));
+$rejectedClaims = max(0, (int) ($claimMetrics['rejected'] ?? 0));
+$totalClaimAmount = max(0, (float) ($claimMetrics['total_amount'] ?? 0));
+$claimsThisMonth = max(0, (int) ($claimMetrics['this_month'] ?? 0));
+$approvalRate = $totalClaims > 0 ? round(($approvedClaims / $totalClaims) * 100, 1) : 0;
+$rejectionRate = $totalClaims > 0 ? round(($rejectedClaims / $totalClaims) * 100, 1) : 0;
+$topHospitals = getTopHospitalsByClaims($pdo, 4);
+$avgProcessing = getAverageProcessingTimeDays($pdo);
+$avgProcessingDays = max(0.0, (float) ($avgProcessing['days'] ?? 0));
+$avgProcessingSubtext = !empty($avgProcessing['has_data'])
+  ? 'Auto-updated from processed claims'
+  : 'No processed claims yet';
+
+$claimsStatus = getClaimsStatusBreakdown($pdo);
+$claimsTotal = max(0, (int) ($claimsStatus['total'] ?? 0));
+$approvedCount = max(0, (int) ($claimsStatus['approved'] ?? 0));
+$pendingCount = max(0, (int) ($claimsStatus['pending'] ?? 0));
+$rejectedCount = max(0, (int) ($claimsStatus['rejected'] ?? 0));
+$approvedPct = $claimsTotal > 0 ? round(($approvedCount / $claimsTotal) * 100) : 0;
+$pendingPct = $claimsTotal > 0 ? round(($pendingCount / $claimsTotal) * 100) : 0;
+$rejectedPct = $claimsTotal > 0 ? round(($rejectedCount / $claimsTotal) * 100) : 0;
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -166,9 +509,8 @@
     </div>
   </div>
   <div class="nav">
-    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/></svg>Data Repository</a>
-    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6Z"/></svg>Data Requests</a>
-    <a href="#" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Claims Dashboard</a>
+    <a href="data_requests.php"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6Z"/></svg>Data Requests</a>
+    <a href="dashboard.php" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Claims Dashboard</a>
     <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09c0 .68.39 1.3 1.04 1.56.6.24 1.31.12 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.46.46-.58 1.17-.34 1.87.24.6.86 1.04 1.56 1.04H21a2 2 0 1 1 0 4h-.09c-.68 0-1.3.39-1.56 1.04Z"/></svg>System Activity</a>
     <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Analytics</a>
   </div>
@@ -194,8 +536,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6"/></svg>
         </div>
       </div>
-      <div class="card-value">6,184</div>
-      <div class="card-sub up">+212 this month</div>
+      <div class="card-value"><?php echo number_format($totalClaims); ?></div>
+      <div class="card-sub up">+<?php echo number_format($claimsThisMonth); ?> this month</div>
     </div>
 
     <div class="card">
@@ -205,7 +547,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         </div>
       </div>
-      <div class="card-value">742</div>
+      <div class="card-value"><?php echo number_format($pendingClaims); ?></div>
       <div class="card-sub">Awaiting review</div>
     </div>
 
@@ -216,8 +558,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10-3-3"/></svg>
         </div>
       </div>
-      <div class="card-value">5,021</div>
-      <div class="card-sub up">81.2% approval rate</div>
+      <div class="card-value"><?php echo number_format($approvedClaims); ?></div>
+      <div class="card-sub up"><?php echo number_format($approvalRate, 1); ?>% approval rate</div>
     </div>
 
     <div class="card">
@@ -227,8 +569,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>
         </div>
       </div>
-      <div class="card-value">421</div>
-      <div class="card-sub">6.8% of total claims</div>
+      <div class="card-value"><?php echo number_format($rejectedClaims); ?></div>
+      <div class="card-sub"><?php echo number_format($rejectionRate, 1); ?>% of total claims</div>
     </div>
 
     <div class="card">
@@ -238,8 +580,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M12 6v6m-3-3h6"/><path d="M19 22V4a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v18"/><path d="M2 22h20"/></svg>
         </div>
       </div>
-      <div class="card-value">186</div>
-      <div class="card-sub up">+4 this month</div>
+      <div class="card-value"><?php echo number_format($registeredHospitals); ?></div>
+      <div class="card-sub up"><?php echo htmlspecialchars($registeredHospitalsSubtext, ENT_QUOTES, 'UTF-8'); ?></div>
     </div>
 
     <div class="card">
@@ -249,8 +591,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
         </div>
       </div>
-      <div class="card-value">8,432</div>
-      <div class="card-sub up">+156 this month</div>
+      <div class="card-value"><?php echo number_format($registeredPatients); ?></div>
+      <div class="card-sub up"><?php echo htmlspecialchars($registeredPatientsSubtext, ENT_QUOTES, 'UTF-8'); ?></div>
     </div>
 
     <div class="card">
@@ -260,7 +602,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 1v22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
         </div>
       </div>
-      <div class="card-value">KES 184.6M</div>
+      <div class="card-value">KES <?php echo number_format($totalClaimAmount, 2); ?></div>
       <div class="card-sub">Across all claims</div>
     </div>
 
@@ -271,8 +613,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
         </div>
       </div>
-      <div class="card-value">3.4 days</div>
-      <div class="card-sub up">-0.6 days vs last month</div>
+      <div class="card-value"><?php echo number_format($avgProcessingDays, 1); ?> days</div>
+      <div class="card-sub up"><?php echo htmlspecialchars($avgProcessingSubtext, ENT_QUOTES, 'UTF-8'); ?></div>
     </div>
   </div>
 
@@ -288,36 +630,43 @@
           <tr><th>Claim</th><th>Hospital</th><th>Amount</th><th>Status</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td><div class="claim-id">CLM-2024-8831</div><div class="claim-sub">Patient: John Davis · PT-2024-5619</div></td>
-            <td>Central Medical Center</td>
-            <td>KES 142,000</td>
-            <td><span class="badge approved">Approved</span></td>
-          </tr>
-          <tr>
-            <td><div class="claim-id">CLM-2024-8830</div><div class="claim-sub">Patient: Amina Yusuf · PT-2024-5618</div></td>
-            <td>Nairobi General Hospital</td>
-            <td>KES 58,500</td>
-            <td><span class="badge pending">Pending</span></td>
-          </tr>
-          <tr>
-            <td><div class="claim-id">CLM-2024-8829</div><div class="claim-sub">Patient: Brian Otieno · PT-2024-5612</div></td>
-            <td>St. Mary's Hospital</td>
-            <td>KES 21,300</td>
-            <td><span class="badge rejected">Rejected</span></td>
-          </tr>
-          <tr>
-            <td><div class="claim-id">CLM-2024-8828</div><div class="claim-sub">Patient: Grace Mwangi · PT-2024-5601</div></td>
-            <td>Central Medical Center</td>
-            <td>KES 97,750</td>
-            <td><span class="badge approved">Approved</span></td>
-          </tr>
-          <tr>
-            <td><div class="claim-id">CLM-2024-8827</div><div class="claim-sub">Patient: Peter Kamau · PT-2024-5598</div></td>
-            <td>Coast General Hospital</td>
-            <td>KES 33,900</td>
-            <td><span class="badge pending">Pending</span></td>
-          </tr>
+          <?php if (!empty($recentClaims)): ?>
+            <?php foreach ($recentClaims as $claim): ?>
+              <?php
+                $claimId = (string)($claim['claim_id'] ?? '');
+                $patientName = trim((string)($claim['patient_name'] ?? ''));
+                $patientId = trim((string)($claim['patient_id'] ?? ''));
+                $claimSub = '';
+                if ($patientName !== '' || $patientId !== '') {
+                  $claimSub = 'Patient: ' . ($patientName !== '' ? $patientName : 'N/A') . ($patientId !== '' ? ' · ' . $patientId : '');
+                }
+                $hospitalName = (string)($claim['hospital_name'] ?? 'N/A');
+                $amountRaw = $claim['claim_amount'] ?? 0;
+                $amountText = is_numeric($amountRaw)
+                  ? 'KES ' . number_format((float)$amountRaw, 2)
+                  : (string)$amountRaw;
+                $statusText = ucfirst(strtolower((string)($claim['claim_status'] ?? 'Pending')));
+                $statusClass = mapStatusClass((string)($claim['claim_status'] ?? 'pending'));
+              ?>
+              <tr>
+                <td>
+                  <div class="claim-id"><?php echo htmlspecialchars($claimId, ENT_QUOTES, 'UTF-8'); ?></div>
+                  <?php if ($claimSub !== ''): ?>
+                    <div class="claim-sub"><?php echo htmlspecialchars($claimSub, ENT_QUOTES, 'UTF-8'); ?></div>
+                  <?php endif; ?>
+                </td>
+                <td><?php echo htmlspecialchars($hospitalName, ENT_QUOTES, 'UTF-8'); ?></td>
+                <td><?php echo htmlspecialchars($amountText, ENT_QUOTES, 'UTF-8'); ?></td>
+                <td><span class="badge <?php echo htmlspecialchars($statusClass, ENT_QUOTES, 'UTF-8'); ?>"><?php echo htmlspecialchars($statusText, ENT_QUOTES, 'UTF-8'); ?></span></td>
+              </tr>
+            <?php endforeach; ?>
+          <?php else: ?>
+            <tr>
+              <td colspan="4" style="text-align:center;color:var(--text-secondary);padding:22px 0;">
+                No claims submitted yet.
+              </td>
+            </tr>
+          <?php endif; ?>
         </tbody>
       </table>
     </div>
@@ -333,23 +682,23 @@
           <div>
             <div class="status-row">
               <div class="status-left"><span class="dot" style="background:var(--green);"></span><span class="status-name">Approved</span></div>
-              <span class="status-count">5,021</span>
+              <span class="status-count"><?php echo number_format($approvedCount); ?></span>
             </div>
-            <div class="bar-track"><div class="bar-fill" style="width:81%;background:var(--green);"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="width:<?php echo $approvedPct; ?>%;background:var(--green);"></div></div>
           </div>
           <div>
             <div class="status-row">
               <div class="status-left"><span class="dot" style="background:var(--amber);"></span><span class="status-name">Pending</span></div>
-              <span class="status-count">742</span>
+              <span class="status-count"><?php echo number_format($pendingCount); ?></span>
             </div>
-            <div class="bar-track"><div class="bar-fill" style="width:12%;background:var(--amber);"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="width:<?php echo $pendingPct; ?>%;background:var(--amber);"></div></div>
           </div>
           <div>
             <div class="status-row">
               <div class="status-left"><span class="dot" style="background:var(--red);"></span><span class="status-name">Rejected</span></div>
-              <span class="status-count">421</span>
+              <span class="status-count"><?php echo number_format($rejectedCount); ?></span>
             </div>
-            <div class="bar-track"><div class="bar-fill" style="width:7%;background:var(--red);"></div></div>
+            <div class="bar-track"><div class="bar-fill" style="width:<?php echo $rejectedPct; ?>%;background:var(--red);"></div></div>
           </div>
         </div>
       </div>
@@ -360,22 +709,25 @@
           <span class="panel-title">Top Hospitals by Claims</span>
         </div>
         <p class="panel-desc">Highest claim volume this month</p>
-        <div class="hospital-row">
-          <div><div class="hospital-name">Central Medical Center</div><div class="hospital-sub">Nairobi</div></div>
-          <div class="hospital-count">812</div>
-        </div>
-        <div class="hospital-row">
-          <div><div class="hospital-name">Nairobi General Hospital</div><div class="hospital-sub">Nairobi</div></div>
-          <div class="hospital-count">654</div>
-        </div>
-        <div class="hospital-row">
-          <div><div class="hospital-name">Coast General Hospital</div><div class="hospital-sub">Mombasa</div></div>
-          <div class="hospital-count">498</div>
-        </div>
-        <div class="hospital-row">
-          <div><div class="hospital-name">St. Mary's Hospital</div><div class="hospital-sub">Kisumu</div></div>
-          <div class="hospital-count">371</div>
-        </div>
+        <?php if (!empty($topHospitals)): ?>
+          <?php foreach ($topHospitals as $hospital): ?>
+            <div class="hospital-row">
+              <div>
+                <div class="hospital-name"><?php echo htmlspecialchars((string) ($hospital['hospital_name'] ?? 'N/A'), ENT_QUOTES, 'UTF-8'); ?></div>
+                <div class="hospital-sub">Claims submitted</div>
+              </div>
+              <div class="hospital-count"><?php echo number_format((int) ($hospital['claim_total'] ?? 0)); ?></div>
+            </div>
+          <?php endforeach; ?>
+        <?php else: ?>
+          <div class="hospital-row">
+            <div>
+              <div class="hospital-name">No hospital claims yet</div>
+              <div class="hospital-sub">Waiting for submissions</div>
+            </div>
+            <div class="hospital-count">0</div>
+          </div>
+        <?php endif; ?>
       </div>
     </div>
   </div>
