@@ -4,19 +4,20 @@ session_start();
 // Enable strict error reporting
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-if (!file_exists('db.php')) {
+if (!file_exists(__DIR__ . '/../db.php')) {
     die("Deployment Error: db.php configuration file is missing from this workspace root layout.");
 }
-require_once 'db.php';
+require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/AuthService.php';
 
-$has_mailer = file_exists('send-email.php');
+$has_mailer = file_exists(__DIR__ . '/../send-email.php');
 if ($has_mailer) {
-    require_once 'send-email.php';
+    require_once __DIR__ . '/../send-email.php';
 }
 
 $error = "";
 
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
+if (isset($_SERVER["REQUEST_METHOD"]) && $_SERVER["REQUEST_METHOD"] == "POST") {
 
     // Capture input — admin logs in with email only
     $login_email = isset($_POST['login_email']) ? trim($_POST['login_email']) : '';
@@ -30,14 +31,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 throw new PDOException("Database connection object (\$pdo) was not initialized.");
             }
 
-            // 1. Look up admin by email
-            $stmt = $pdo->prepare("SELECT admin_id, full_name, email, password FROM administrators WHERE email = ? LIMIT 1");
-            $stmt->execute([$login_email]);
-            $admin = $stmt->fetch();
+            $authService = new AuthService($pdo);
+            $admin = $authService->attemptLogin($login_email, $password);
 
-            // 2. Verify password
-            if ($admin && password_verify($password, $admin['password'])) {
-
+            if ($admin) {
                 // Store admin session data
                 $_SESSION['staff_logged_in'] = true;
                 $_SESSION['staff_name']      = $admin['full_name'];
