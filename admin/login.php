@@ -8,7 +8,8 @@ if (!file_exists(__DIR__ . '/../db.php')) {
     die("Deployment Error: db.php configuration file is missing from this workspace root layout.");
 }
 require_once __DIR__ . '/../db.php';
-require_once __DIR__ . '/AuthService.php';
+require_once __DIR__ . '/AdminService.php';
+
 
 $has_mailer = file_exists(__DIR__ . '/../send-email.php');
 if ($has_mailer) {
@@ -31,8 +32,8 @@ if (isset($_SERVER["REQUEST_METHOD"]) && $_SERVER["REQUEST_METHOD"] == "POST") {
                 throw new PDOException("Database connection object (\$pdo) was not initialized.");
             }
 
-            $authService = new AuthService($pdo);
-            $admin = $authService->attemptLogin($login_email, $password);
+            $adminService = new AdminService($pdo);
+            $admin = $adminService->attemptLogin($login_email, $password);
 
             if ($admin) {
                 // Store admin session data
