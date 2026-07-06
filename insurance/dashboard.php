@@ -193,7 +193,11 @@ function getClaimMetrics(PDO $pdo): array
 
   if ($amountCol !== null) {
     try {
-      $sumSql = "SELECT COALESCE(SUM(`{$amountCol}`), 0) FROM `{$table}`";
+      if ($statusCol !== null) {
+        $sumSql = "SELECT COALESCE(SUM(CASE WHEN LOWER(TRIM(`{$statusCol}`)) = 'approved' THEN `{$amountCol}` ELSE 0 END), 0) FROM `{$table}`";
+      } else {
+        $sumSql = "SELECT 0";
+      }
       $metrics['total_amount'] = (float) $pdo->query($sumSql)->fetchColumn();
     } catch (PDOException $e) {
       $metrics['total_amount'] = 0.0;
@@ -512,13 +516,15 @@ $rejectedPct = $claimsTotal > 0 ? round(($rejectedCount / $claimsTotal) * 100) :
     <a href="data_requests.php"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 2h6l1 4H8l1-4Z"/><path d="M5 6h14l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6Z"/></svg>Data Requests</a>
     <a href="dashboard.php" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Claims Dashboard</a>
     <a href="system_activity.php"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.04 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.04H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1.04-1.56V3a2 2 0 1 1 4 0v.09c0 .68.39 1.3 1.04 1.56.6.24 1.31.12 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06c-.46.46-.58 1.17-.34 1.87.24.6.86 1.04 1.56 1.04H21a2 2 0 1 1 0 4h-.09c-.68 0-1.3.39-1.56 1.04Z"/></svg>System Activity</a>
-    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Analytics</a>
   </div>
   <div class="sidebar-footer">
+    <a href="logout.php" class="signout">
     <div class="signout">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
       Sign Out
+</a>
     </div>
+
   </div>
 </div>
 
@@ -603,7 +609,7 @@ $rejectedPct = $claimsTotal > 0 ? round(($rejectedCount / $claimsTotal) * 100) :
         </div>
       </div>
       <div class="card-value">KES <?php echo number_format($totalClaimAmount, 2); ?></div>
-      <div class="card-sub">Across all claims</div>
+      <div class="card-sub">Approved claims only</div>
     </div>
 
     <div class="card">

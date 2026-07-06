@@ -211,7 +211,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         <h2>Password Reset</h2>
         <div class="alert-success">&#10003; <?php echo htmlspecialchars($success); ?></div>
         <div class="footer-note">
-            <a href="insurer-login.php">Go to Login</a>
+            <a href="login.php">Go to Login</a>
         </div>
 
     <?php elseif (!$otp_verified): ?>
@@ -263,7 +263,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     <?php if (empty($success)): ?>
         <div class="footer-note">
-            <a href="insurer-login.php">&larr; Back to Login</a>
+            <a href="login.php">&larr; Back to Login</a>
         </div>
     <?php endif; ?>
 

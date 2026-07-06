@@ -144,7 +144,7 @@ function statusBadge($status) {
             <div class="col-12 col-md-6 col-lg-4">
                 <div class="pr-card">
                     <?php if ($isApproved): ?>
-                        <h3 class="pr-name\"><?= htmlspecialchars($displayName); ?></h3>
+                        <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
                         <p class="pr-details">
                             National ID: <span><?= htmlspecialchars($req['patient_national_id'] ?: 'N/A'); ?></span><br>
                             Email: <span><?= htmlspecialchars($req['patient_email'] ?: 'N/A'); ?></span><br>
@@ -154,10 +154,10 @@ function statusBadge($status) {
                         </p>
                     <?php else: ?>
                         <?php if (strtolower((string)$req['request_status']) === 'declined'): ?>
-                            <h3 class="pr-name">Patient Details Hidden</h3>
+                            <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
                             <p class="pr-hidden">Patient declined this request. No details are visible.</p>
                         <?php else: ?>
-                            <h3 class="pr-name\"><?= htmlspecialchars($displayName); ?></h3>
+                            <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
                         <?php endif; ?>
                     <?php endif; ?>
                     <span class="pr-badge <?= $badge['class']; ?>"><i class="bi <?= $badge['icon']; ?>"></i> <?= $badge['label']; ?></span>
