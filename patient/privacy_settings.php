@@ -27,6 +27,27 @@ $stmt_req = $pdo->prepare("SELECT id, doctor_name AS hospital_admin_name, medica
                            ORDER BY requested_at DESC");
 $stmt_req->execute(['pid' => $real_id]);
 $requests = $stmt_req->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch recently sent records history for this patient
+$stmt_sent = $pdo->prepare("SELECT id, doctor_name, medical_facility, updated_at
+                                                     FROM access_requests
+                                                     WHERE patient_id = :pid
+                                                         AND request_status = 'approved'
+                                                         AND records_sent = 1
+                                                     ORDER BY updated_at DESC
+                                                     LIMIT 6");
+$stmt_sent->execute(['pid' => $real_id]);
+$recent_sent = $stmt_sent->fetchAll(PDO::FETCH_ASSOC);
+
+// Fetch declined/rejected requests history for this patient
+$stmt_declined = $pdo->prepare("SELECT id, doctor_name AS hospital_admin_name, medical_facility, requested_at, updated_at
+                                                                 FROM access_requests
+                                                                 WHERE patient_id = :pid
+                                                                     AND LOWER(request_status) IN ('declined', 'rejected')
+                                                                 ORDER BY COALESCE(updated_at, requested_at) DESC
+                                                                 LIMIT 8");
+$stmt_declined->execute(['pid' => $real_id]);
+$declined_requests = $stmt_declined->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -46,6 +67,11 @@ $requests = $stmt_req->fetchAll(PDO::FETCH_ASSOC);
         .main-content { margin-left: 260px; padding: 40px; }
         .card-custom { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 24px; margin-bottom: 24px; }
         .request-item { display: flex; justify-content: space-between; align-items: center; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; margin-bottom: 10px; }
+        .sent-item { border: 1px solid #e2e8f0; padding: 14px 15px; border-radius: 12px; margin-bottom: 10px; }
+        .sent-item:last-child { margin-bottom: 0; }
+        .sent-title { font-size: 0.95rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
+        .sent-meta { margin: 0; font-size: 0.82rem; color: #64748b; }
+        .sent-meta span { color: #1e293b; font-weight: 600; }
         .btn-approve { background: #22c55e; color: white; border-radius: 20px; padding: 5px 15px; border: none; font-size: 0.8rem; font-weight: 600; }
         .btn-decline { background: transparent; color: #ef4444; border: 1px solid #ef4444; border-radius: 20px; padding: 5px 15px; font-size: 0.8rem; font-weight: 600; }
     </style>
@@ -87,6 +113,40 @@ $requests = $stmt_req->fetchAll(PDO::FETCH_ASSOC);
             <?php endforeach; ?>
         <?php else: ?>
             <p class="text-muted mt-3">No pending access requests at this time.</p>
+        <?php endif; ?>
+    </section>
+
+    <section class="card-custom border-info" style="border-left: 5px solid #0ea5e9;">
+        <h5><i class="fa-solid fa-share-nodes text-info me-2"></i>Recent Hospital Staff Dispatches</h5>
+        <p class="text-muted mb-3">Shows which hospital facility sent your records and the doctor they were sent to.</p>
+
+        <?php if (!empty($recent_sent)): ?>
+            <?php foreach ($recent_sent as $sent): ?>
+                <div class="sent-item">
+                    <p class="sent-title"><?php echo htmlspecialchars($sent['medical_facility'] ?? 'Hospital Staff'); ?></p>
+                    <p class="sent-meta">Sent to Doctor: <span><?php echo htmlspecialchars($sent['doctor_name'] ?? 'Not specified'); ?></span></p>
+                    <p class="sent-meta">Sent at: <span><?php echo !empty($sent['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($sent['updated_at']))) : 'N/A'; ?></span></p>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p class="text-muted mt-2 mb-0">No records have been sent to any doctor yet.</p>
+        <?php endif; ?>
+    </section>
+
+    <section class="card-custom border-danger" style="border-left: 5px solid #ef4444;">
+        <h5><i class="fa-solid fa-ban text-danger me-2"></i>Declined Requests History</h5>
+        <p class="text-muted mb-3">Shows who you declined access requests from.</p>
+
+        <?php if (!empty($declined_requests)): ?>
+            <?php foreach ($declined_requests as $declined): ?>
+                <div class="sent-item">
+                    <p class="sent-title"><?php echo htmlspecialchars($declined['hospital_admin_name'] ?? 'Unknown Admin'); ?></p>
+                    <p class="sent-meta">Facility: <span><?php echo htmlspecialchars($declined['medical_facility'] ?? 'No facility provided'); ?></span></p>
+                    <p class="sent-meta">Declined at: <span><?php echo !empty($declined['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($declined['updated_at']))) : (!empty($declined['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($declined['requested_at']))) : 'N/A'); ?></span></p>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p class="text-muted mt-2 mb-0">You have not declined any requests yet.</p>
         <?php endif; ?>
     </section>
 </div>

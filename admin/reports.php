@@ -7,6 +7,79 @@ if (!isset($_SESSION['admin_id'])) {
     exit();
 }
 
+$doctorHasHospitalName = false;
+try {
+    $doctorHospitalColumn = $pdo->query("SHOW COLUMNS FROM doctors LIKE 'hospital_name'");
+    $doctorHasHospitalName = $doctorHospitalColumn && (bool) $doctorHospitalColumn->fetchColumn();
+} catch (PDOException $e) {
+    $doctorHasHospitalName = false;
+}
+
+$doctorHasPhone = false;
+try {
+    $doctorPhoneColumn = $pdo->query("SHOW COLUMNS FROM doctors LIKE 'phone'");
+    $doctorHasPhone = $doctorPhoneColumn && (bool) $doctorPhoneColumn->fetchColumn();
+} catch (PDOException $e) {
+    $doctorHasPhone = false;
+}
+
+if (isset($_GET['download']) && $_GET['download'] === 'csv') {
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="system-report-' . date('Y-m-d') . '.csv"');
+
+    $output = fopen('php://output', 'w');
+    if ($output === false) {
+        http_response_code(500);
+        exit('Unable to generate CSV report.');
+    }
+
+    // UTF-8 BOM helps spreadsheet apps render characters correctly.
+    fwrite($output, "\xEF\xBB\xBF");
+
+    fputcsv($output, ['System Reports and Overview']);
+    fputcsv($output, ['Generated At', date('Y-m-d H:i:s')]);
+    fputcsv($output, []);
+
+    $hospitals = (int) $pdo->query("SELECT COUNT(*) FROM hospitals")->fetchColumn();
+    $doctors = (int) $pdo->query("SELECT COUNT(*) FROM doctors")->fetchColumn();
+    $patients = (int) $pdo->query("SELECT COUNT(*) FROM patients")->fetchColumn();
+
+    fputcsv($output, ['Summary']);
+    fputcsv($output, ['Total Hospitals', $hospitals]);
+    fputcsv($output, ['Total Doctors', $doctors]);
+    fputcsv($output, ['Total Patients', $patients]);
+    fputcsv($output, []);
+
+    fputcsv($output, ['Recent Doctor Registrations']);
+    fputcsv($output, ['Doctor Name', 'Specialty', 'Hospital', 'Phone', 'Status']);
+
+    $doctorHospitalSelect = $doctorHasHospitalName
+        ? "COALESCE(NULLIF(TRIM(hospital_name), ''), 'N/A') AS hospital_name"
+        : "'N/A' AS hospital_name";
+    $doctorPhoneSelect = $doctorHasPhone
+        ? "COALESCE(NULLIF(TRIM(phone), ''), 'N/A') AS phone"
+        : "'N/A' AS phone";
+    $latestDoctorsStmt = $pdo->query("SELECT name, specialty, {$doctorHospitalSelect}, {$doctorPhoneSelect}, status FROM doctors ORDER BY created_at DESC LIMIT 5");
+    $latestDoctorsRows = $latestDoctorsStmt ? $latestDoctorsStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+
+    if (empty($latestDoctorsRows)) {
+        fputcsv($output, ['No recent doctor registrations', '', '', '', '']);
+    } else {
+        foreach ($latestDoctorsRows as $docRow) {
+            fputcsv($output, [
+                (string) ($docRow['name'] ?? ''),
+                (string) ($docRow['specialty'] ?? ''),
+                (string) ($docRow['hospital_name'] ?? 'N/A'),
+                (string) ($docRow['phone'] ?? 'N/A'),
+                (string) ($docRow['status'] ?? ''),
+            ]);
+        }
+    }
+
+    fclose($output);
+    exit();
+}
+
 // Fetch some aggregate data for the report
 $stats = [
     'hospitals' => $pdo->query("SELECT COUNT(*) FROM hospitals")->fetchColumn(),
@@ -15,7 +88,13 @@ $stats = [
 ];
 
 // Fetch list of latest records for a summary table
-$latest_doctors = $pdo->query("SELECT name, specialty, status FROM doctors ORDER BY created_at DESC LIMIT 5")->fetchAll();
+$doctorHospitalSelect = $doctorHasHospitalName
+    ? "COALESCE(NULLIF(TRIM(hospital_name), ''), 'N/A') AS hospital_name"
+    : "'N/A' AS hospital_name";
+$doctorPhoneSelect = $doctorHasPhone
+    ? "COALESCE(NULLIF(TRIM(phone), ''), 'N/A') AS phone"
+    : "'N/A' AS phone";
+$latest_doctors = $pdo->query("SELECT name, specialty, {$doctorHospitalSelect}, {$doctorPhoneSelect}, status FROM doctors ORDER BY created_at DESC LIMIT 5")->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -139,6 +218,8 @@ $latest_doctors = $pdo->query("SELECT name, specialty, status FROM doctors ORDER
                 <tr>
                     <th>Doctor Name</th>
                     <th>Specialty</th>
+                    <th>Hospital</th>
+                    <th>Phone</th>
                     <th>Status</th>
                 </tr>
             </thead>
@@ -147,15 +228,18 @@ $latest_doctors = $pdo->query("SELECT name, specialty, status FROM doctors ORDER
                 <tr>
                     <td><?= htmlspecialchars($doc['name']) ?></td>
                     <td><?= htmlspecialchars($doc['specialty']) ?></td>
+                    <td><?= htmlspecialchars($doc['hospital_name'] ?? 'N/A') ?></td>
+                    <td><?= htmlspecialchars($doc['phone'] ?? 'N/A') ?></td>
                     <td><span class="badge bg-info"><?= $doc['status'] ?></span></td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
         <div class="mt-3">
-            <button class="btn btn-primary" onclick="downloadReportPdf()">Download Report
-    
+            <button type="button" class="btn btn-primary" onclick="downloadReportPdf()">
+                Download Report PDF
             </button>
+            
         </div>
     </div>
 </div>
@@ -190,24 +274,56 @@ function downloadReportPdf() {
     doc.setFontSize(12);
     doc.text('Summary', 40, 100);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.text('Total Hospitals: ' + stats.hospitals, 40, 120);
-    doc.text('Total Doctors: ' + stats.doctors, 40, 138);
-    doc.text('Total Patients: ' + stats.patients, 40, 156);
+    const summaryCards = [
+        { label: 'Total Hospitals', value: Number(stats.hospitals || 0).toLocaleString() },
+        { label: 'Total Doctors', value: Number(stats.doctors || 0).toLocaleString() },
+        { label: 'Total Patients', value: Number(stats.patients || 0).toLocaleString() }
+    ];
+
+    const cardStartX = 40;
+    const cardStartY = 112;
+    const cardGap = 12;
+    const contentWidth = 515;
+    const cardWidth = (contentWidth - (cardGap * 2)) / 3;
+    const cardHeight = 82;
+
+    summaryCards.forEach(function (card, index) {
+        const x = cardStartX + (index * (cardWidth + cardGap));
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(224, 230, 232);
+        doc.roundedRect(x, cardStartY, cardWidth, cardHeight, 8, 8, 'FD');
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(106, 117, 120);
+        doc.text(card.label, x + 12, cardStartY + 24);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(23);
+        doc.setTextColor(16, 124, 145);
+        doc.text(card.value, x + 12, cardStartY + 58);
+    });
+
+    doc.setTextColor(28, 39, 51);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.text('Recent Doctor Registrations', 40, 224);
 
     const tableRows = recentDoctors.map(function (docRow) {
         return [
             docRow.name || '',
             docRow.specialty || '',
+            docRow.hospital_name || 'N/A',
+            docRow.phone || 'N/A',
             docRow.status || ''
         ];
     });
 
     doc.autoTable({
-        startY: 190,
-        head: [['Doctor Name', 'Specialty', 'Status']],
-        body: tableRows.length ? tableRows : [['No recent doctor registrations', '', '']],
+        startY: 236,
+        head: [['Doctor Name', 'Specialty', 'Hospital', 'Phone', 'Status']],
+        body: tableRows.length ? tableRows : [['No recent doctor registrations', '', '', '', '']],
         styles: { font: 'helvetica', fontSize: 10 },
         headStyles: { fillColor: [16, 124, 145] }
     });
