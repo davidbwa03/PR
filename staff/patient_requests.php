@@ -31,6 +31,8 @@ try {
 try {
     $stmt_requests = $pdo->query("
         SELECT ar.id, ar.patient_id, ar.request_status,
+               ar.requested_at,
+               ar.updated_at,
                p.name AS patient_name,
                p.email AS patient_email,
                p.national_id AS patient_national_id,
@@ -140,10 +142,14 @@ function statusBadge($status) {
                 $badge = statusBadge($req['request_status']);
                 $displayName = $req['patient_name'] ?: ('Patient #' . $req['patient_id']);
                 $isApproved = strtolower((string)$req['request_status']) === 'approved';
+                $approvalTime = !empty($req['updated_at']) ? strtotime((string)$req['updated_at']) : false;
+                $detailsExpired = $isApproved && $approvalTime !== false && (time() - $approvalTime) > (48 * 60 * 60);
+                $requestSentAt = !empty($req['requested_at']) ? date('Y-m-d H:i', strtotime((string)$req['requested_at'])) : 'N/A';
             ?>
             <div class="col-12 col-md-6 col-lg-4">
                 <div class="pr-card">
-                    <?php if ($isApproved): ?>
+                    <p class="pr-hidden">Request sent: <?= htmlspecialchars($requestSentAt); ?></p>
+                    <?php if ($isApproved && !$detailsExpired): ?>
                         <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
                         <p class="pr-details">
                             National ID: <span><?= htmlspecialchars($req['patient_national_id'] ?: 'N/A'); ?></span><br>
@@ -153,7 +159,10 @@ function statusBadge($status) {
                             Gender: <span><?= htmlspecialchars($req['patient_gender'] ?: 'N/A'); ?></span>
                         </p>
                     <?php else: ?>
-                        <?php if (strtolower((string)$req['request_status']) === 'declined'): ?>
+                        <?php if ($isApproved && $detailsExpired): ?>
+                            <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
+                            <p class="pr-hidden">Patient details have expired after 48hrs.</p>
+                        <?php elseif (strtolower((string)$req['request_status']) === 'declined'): ?>
                             <h3 class="pr-name"><?= htmlspecialchars($displayName); ?></h3>
                             <p class="pr-hidden">Patient declined this request. No details are visible.</p>
                         <?php else: ?>
