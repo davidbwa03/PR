@@ -31,6 +31,7 @@ $stmtPatients = $pdo->prepare("
            p.national_id,
            p.email       AS patient_email,
            ar.requested_at AS assigned_at,
+          COALESCE(ar.updated_at, ar.requested_at) AS access_granted_at,
         (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count,
         (SELECT COUNT(*) FROM patient_allergies WHERE patient_id = p.id) AS allergy_count
     FROM access_requests ar
@@ -44,6 +45,12 @@ $stmtPatients->execute(['dname' => $doctor_name]);
 $patients = $stmtPatients->fetchAll(PDO::FETCH_ASSOC);
 
 $total_patients = count($patients);
+
+foreach ($patients as &$row) {
+    $accessAt = !empty($row['access_granted_at']) ? strtotime((string)$row['access_granted_at']) : false;
+    $row['details_expired'] = $accessAt !== false && (time() - $accessAt) > (48 * 60 * 60);
+}
+unset($row);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -127,7 +134,11 @@ $total_patients = count($patients);
                 <div class="time-slot"><?php echo date('d M', strtotime($row['assigned_at'])); ?></div>
                 <div class="patient-info" style="flex:1; padding: 0 20px;">
                     <strong><?php echo htmlspecialchars($row['patient_name']); ?></strong>
-                    <small>NID: <?php echo htmlspecialchars($row['national_id']); ?> &bull; <?php echo htmlspecialchars($row['patient_email']); ?></small>
+                    <?php if (!empty($row['details_expired'])): ?>
+                        <small>Patient details have expired after 48hrs.</small>
+                    <?php else: ?>
+                        <small>NID: <?php echo htmlspecialchars($row['national_id']); ?> &bull; <?php echo htmlspecialchars($row['patient_email']); ?></small>
+                    <?php endif; ?>
                 </div>
                 <div style="display:flex; align-items:center; gap:14px;">
                     <span style="font-size:0.78rem; color:#16a34a; background:#dcfce7; padding:4px 10px; border-radius:20px; font-weight:600;">

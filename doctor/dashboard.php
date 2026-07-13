@@ -70,6 +70,7 @@ $stmtRecent = $pdo->prepare("
            p.national_id,
            p.email       AS patient_email,
            ar.requested_at,
+            COALESCE(ar.updated_at, ar.requested_at) AS access_granted_at,
            (SELECT COUNT(*) FROM medical_records WHERE patient_id = p.id) AS record_count
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
@@ -81,6 +82,12 @@ $stmtRecent = $pdo->prepare("
 ");
 $stmtRecent->execute(['dname' => $doctor_name]);
 $recent_patients = $stmtRecent->fetchAll(PDO::FETCH_ASSOC);
+
+foreach ($recent_patients as &$row) {
+    $accessAt = !empty($row['access_granted_at']) ? strtotime((string)$row['access_granted_at']) : false;
+    $row['details_expired'] = $accessAt !== false && (time() - $accessAt) > (48 * 60 * 60);
+}
+unset($row);
 
 // Today's date greeting
 $hour = (int) date('H');
@@ -420,9 +427,13 @@ $greeting = $hour < 12 ? 'Good morning' : ($hour < 17 ? 'Good afternoon' : 'Good
                     <td style="color:#94a3b8; font-size:0.8rem;"><?php echo $i++; ?></td>
                     <td>
                         <span class="patient-name"><?php echo htmlspecialchars($row['patient_name']); ?></span>
-                        <span class="patient-nid">NID: <?php echo htmlspecialchars($row['national_id']); ?></span>
+                        <?php if (!empty($row['details_expired'])): ?>
+                            <span class="patient-nid">Patient details have expired after 48hrs.</span>
+                        <?php else: ?>
+                            <span class="patient-nid">NID: <?php echo htmlspecialchars($row['national_id']); ?></span>
+                        <?php endif; ?>
                     </td>
-                    <td><?php echo htmlspecialchars($row['patient_email']); ?></td>
+                    <td><?php echo !empty($row['details_expired']) ? 'Hidden' : htmlspecialchars($row['patient_email']); ?></td>
                     <td><?php echo date('M d, Y', strtotime($row['requested_at'])); ?></td>
                     <td>
                         <span class="badge-status approved">

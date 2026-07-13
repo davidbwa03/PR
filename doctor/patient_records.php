@@ -47,6 +47,11 @@ if (!$access_consent) {
     exit();
 }
 
+$accessTimestamp = !empty($access_consent['updated_at'])
+    ? strtotime((string)$access_consent['updated_at'])
+    : (!empty($access_consent['requested_at']) ? strtotime((string)$access_consent['requested_at']) : false);
+$detailsExpired = $accessTimestamp !== false && (time() - $accessTimestamp) > (48 * 60 * 60);
+
 // Fetch patient info - Adjusted column names to match schema (assuming 'dob' exists)
 $p_stmt = $pdo->prepare("SELECT id, name, email, national_id, dob AS date_of_birth, gender, phone FROM patients WHERE id = ? LIMIT 1");
 $p_stmt->execute([$patient_id]);
@@ -110,7 +115,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #1e293b;
         }
 
-        /* ── Sidebar ── */
+        /* G��G�� Sidebar G��G�� */
         .sidebar {
             width: 220px;
             height: 100vh;
@@ -175,14 +180,14 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
         }
         .sign-out:hover { background: #fee2e2; color: #dc2626; }
 
-        /* ── Main ── */
+        /* G��G�� Main G��G�� */
         .main-content {
             margin-left: 220px;
             padding: 40px 44px;
             min-height: 100vh;
         }
 
-        /* ── Back link ── */
+        /* G��G�� Back link G��G�� */
         .back-link {
             display: inline-flex;
             align-items: center;
@@ -195,7 +200,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
         }
         .back-link:hover { color: #0e7490; }
 
-        /* ── Patient profile card ── */
+        /* G��G�� Patient profile card G��G�� */
         .profile-card {
             background: #fff;
             border: 1px solid #e2e8f0;
@@ -241,7 +246,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .profile-meta span i { color: #94a3b8; }
 
-        /* ── Privacy consent card ── */
+        /* G��G�� Privacy consent card G��G�� */
         .consent-card {
             background: #fff;
             border: 1px solid #e2e8f0;
@@ -302,7 +307,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
             color: #0f172a;
         }
 
-        /* ── Records section ── */
+        /* G��G�� Records section G��G�� */
         .section-title {
             font-size: 1rem;
             font-weight: 700;
@@ -313,7 +318,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
             gap: 8px;
         }
 
-        /* ── Record card ── */
+        /* G��G�� Record card G��G�� */
         .record-card {
             background: #fff;
             border: 1px solid #e2e8f0;
@@ -380,7 +385,7 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .record-field p.empty { color: #cbd5e1; font-style: italic; }
 
-        /* ── Empty state ── */
+        /* G��G�� Empty state G��G�� */
         .empty-state {
             text-align: center;
             padding: 64px 20px;
@@ -439,16 +444,20 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="profile-info">
             <h3><?php echo htmlspecialchars($patient['name']); ?></h3>
             <div class="profile-meta">
-                <span><i class="fa-solid fa-id-card"></i> NID: <?php echo htmlspecialchars($patient['national_id']); ?></span>
-                <span><i class="fa-solid fa-envelope"></i> <?php echo htmlspecialchars($patient['email']); ?></span>
-                <?php if (!empty($patient['date_of_birth'])): ?>
-                    <span><i class="fa-solid fa-cake-candles"></i> <?php echo date('M d, Y', strtotime($patient['date_of_birth'])); ?></span>
-                <?php endif; ?>
-                <?php if (!empty($patient['gender'])): ?>
-                    <span><i class="fa-solid fa-venus-mars"></i> <?php echo htmlspecialchars(ucfirst($patient['gender'])); ?></span>
-                <?php endif; ?>
-                <?php if (!empty($patient['phone'])): ?>
-                    <span><i class="fa-solid fa-phone"></i> <?php echo htmlspecialchars($patient['phone']); ?></span>
+                <?php if ($detailsExpired): ?>
+                    <span><i class="fa-solid fa-lock"></i> Patient details have expired after 48hrs.</span>
+                <?php else: ?>
+                    <span><i class="fa-solid fa-id-card"></i> NID: <?php echo htmlspecialchars($patient['national_id']); ?></span>
+                    <span><i class="fa-solid fa-envelope"></i> <?php echo htmlspecialchars($patient['email']); ?></span>
+                    <?php if (!empty($patient['date_of_birth'])): ?>
+                        <span><i class="fa-solid fa-cake-candles"></i> <?php echo date('M d, Y', strtotime($patient['date_of_birth'])); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($patient['gender'])): ?>
+                        <span><i class="fa-solid fa-venus-mars"></i> <?php echo htmlspecialchars(ucfirst($patient['gender'])); ?></span>
+                    <?php endif; ?>
+                    <?php if (!empty($patient['phone'])): ?>
+                        <span><i class="fa-solid fa-phone"></i> <?php echo htmlspecialchars($patient['phone']); ?></span>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </div>
@@ -465,14 +474,20 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
                 <?php echo htmlspecialchars(ucfirst((string)$access_consent['request_status'])); ?>
             </span>
         </div>
-        <div class="consent-grid">
-            <span>Patient Consent Scope: <strong>Medical records shared</strong></span>
-            <span>Records Delivery: <strong><?php echo ((int)$access_consent['records_sent'] === 1) ? 'Completed' : 'Pending'; ?></strong></span>
-            <span>Approved For Doctor: <strong>Dr. <?php echo htmlspecialchars($access_consent['doctor_name'] ?: $doctor_name); ?></strong></span>
-            <span>Facility: <strong><?php echo htmlspecialchars($access_consent['medical_facility'] ?: 'Not specified'); ?></strong></span>
-            <span>Request Date: <strong><?php echo !empty($access_consent['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['requested_at']))) : 'N/A'; ?></strong></span>
-            <span>Last Consent Update: <strong><?php echo !empty($access_consent['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['updated_at']))) : 'N/A'; ?></strong></span>
-        </div>
+        <?php if ($detailsExpired): ?>
+            <div class="consent-grid">
+                <span><strong>Patient details have expired after 48hrs.</strong></span>
+            </div>
+        <?php else: ?>
+            <div class="consent-grid">
+                <span>Patient Consent Scope: <strong>Medical records shared</strong></span>
+                <span>Records Delivery: <strong><?php echo ((int)$access_consent['records_sent'] === 1) ? 'Completed' : 'Pending'; ?></strong></span>
+                <span>Approved For Doctor: <strong>Dr. <?php echo htmlspecialchars($access_consent['doctor_name'] ?: $doctor_name); ?></strong></span>
+                <span>Facility: <strong><?php echo htmlspecialchars($access_consent['medical_facility'] ?: 'Not specified'); ?></strong></span>
+                <span>Request Date: <strong><?php echo !empty($access_consent['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['requested_at']))) : 'N/A'; ?></strong></span>
+                <span>Last Consent Update: <strong><?php echo !empty($access_consent['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($access_consent['updated_at']))) : 'N/A'; ?></strong></span>
+            </div>
+        <?php endif; ?>
     </div>
 
     <div class="consent-card">
@@ -482,10 +497,16 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
                 Patient Allergies
             </div>
             <span class="consent-pill approved" style="background:#fee2e2; color:#b91c1c; border-color:#fecaca;">
-                <?php echo count($allergies); ?> allergen<?php echo count($allergies) !== 1 ? 's' : ''; ?>
+                <?php if ($detailsExpired): ?>
+                    Hidden
+                <?php else: ?>
+                    <?php echo count($allergies); ?> allergen<?php echo count($allergies) !== 1 ? 's' : ''; ?>
+                <?php endif; ?>
             </span>
         </div>
-        <?php if (!empty($allergies)): ?>
+        <?php if ($detailsExpired): ?>
+            <span style="font-size:0.82rem; color:#64748b;">Patient details have expired after 48hrs.</span>
+        <?php elseif (!empty($allergies)): ?>
             <div class="consent-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
                 <?php foreach ($allergies as $allergy): ?>
                     <span><strong><?php echo htmlspecialchars($allergy['allergen_name']); ?></strong></span>
@@ -502,7 +523,12 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
         <span style="font-size:0.78rem; font-weight:500; color:#94a3b8; margin-left:4px;">(<?php echo count($records); ?> entr<?php echo count($records) !== 1 ? 'ies' : 'y'; ?>)</span>
     </div>
 
-    <?php if (!empty($records)): ?>
+    <?php if ($detailsExpired): ?>
+        <div class="empty-state">
+            <i class="fa-solid fa-lock"></i>
+            <p>Patient details have expired after 48hrs. Only patient name is visible.</p>
+        </div>
+    <?php elseif (!empty($records)): ?>
         <?php foreach ($records as $rec): ?>
         <div class="record-card">
             <div class="record-header">
@@ -551,7 +577,12 @@ $allergies = $allergy_stmt->fetchAll(PDO::FETCH_ASSOC);
         <span style="font-size:0.78rem; font-weight:500; color:#94a3b8; margin-left:4px;">(<?php echo count($prescriptions); ?> entr<?php echo count($prescriptions) !== 1 ? 'ies' : 'y'; ?>)</span>
     </div>
 
-    <?php if (!empty($prescriptions)): ?>
+    <?php if ($detailsExpired): ?>
+        <div class="empty-state" style="padding: 30px 20px;">
+            <i class="fa-solid fa-lock"></i>
+            <p>Prescription details are hidden because access expired after 48hrs.</p>
+        </div>
+    <?php elseif (!empty($prescriptions)): ?>
         <?php foreach ($prescriptions as $presc): ?>
         <div class="record-card">
             <div class="record-header">

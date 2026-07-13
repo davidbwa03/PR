@@ -40,6 +40,7 @@ try { $pdo->exec("ALTER TABLE patient_privacy_consents ADD COLUMN authored_by_do
 // Join via doctors table using doctor_id to avoid session name mismatch
 $stmt_patients = $pdo->prepare("
     SELECT DISTINCT p.id, p.name, p.national_id, p.email
+                     , COALESCE(ar.updated_at, ar.requested_at) AS access_granted_at
     FROM access_requests ar
     JOIN patients p ON p.id = ar.patient_id
     JOIN doctors d ON d.name = ar.doctor_name
@@ -51,10 +52,17 @@ $stmt_patients = $pdo->prepare("
 $stmt_patients->execute(['did' => $doctor_id]);
 $approved_patients = $stmt_patients->fetchAll(PDO::FETCH_ASSOC);
 
+foreach ($approved_patients as &$ap) {
+    $accessAt = !empty($ap['access_granted_at']) ? strtotime((string)$ap['access_granted_at']) : false;
+    $ap['details_expired'] = $accessAt !== false && (time() - $accessAt) > (48 * 60 * 60);
+}
+unset($ap);
+
 // Selected patient context
 $selected_id      = (int)($_GET['patient_id'] ?? 0);
 $selected_patient = null;
 $recent_records   = [];
+$selected_access_expired = false;
 $recent_prescriptions = [];
 $privacy_consents = [
     'allergies_summary_text' => '',
@@ -69,11 +77,12 @@ if ($selected_id > 0) {
     foreach ($approved_patients as $ap) {
         if ((int)$ap['id'] === $selected_id) {
             $selected_patient = $ap;
+            $selected_access_expired = !empty($ap['details_expired']);
             break;
         }
     }
 
-    if ($selected_patient) {
+    if ($selected_patient && !$selected_access_expired) {
         $stmt_consents = $pdo->prepare("SELECT allergies_summary_text, chronic_diagnostic_logs_text, surgical_typologies_summary_text, surgical_typologies_necessary, authored_by_doctor_name, updated_at FROM patient_privacy_consents WHERE patient_id = :pid LIMIT 1");
         $stmt_consents->execute(['pid' => $selected_id]);
         $loaded_consents = $stmt_consents->fetch(PDO::FETCH_ASSOC);
@@ -111,6 +120,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Verify the doctor has approved access to this patient (assigned by admin)
     $stmt_verify = $pdo->prepare("
         SELECT ar.id
+        , COALESCE(ar.updated_at, ar.requested_at) AS access_granted_at
         FROM access_requests ar
         JOIN doctors d ON d.name = ar.doctor_name
         WHERE d.id = :did
@@ -120,10 +130,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         LIMIT 1
     ");
     $stmt_verify->execute(['did' => $doctor_id, 'pid' => $patient_id]);
-    $allowed = $stmt_verify->fetch();
+    $allowed = $stmt_verify->fetch(PDO::FETCH_ASSOC);
+    $postAccessAt = !empty($allowed['access_granted_at']) ? strtotime((string)$allowed['access_granted_at']) : false;
+    $postAccessExpired = $postAccessAt !== false && (time() - $postAccessAt) > (48 * 60 * 60);
 
     if (!$allowed) {
         $error_msg = "Access Denied: You do not have approved access to this patient.";
+    } elseif ($postAccessExpired) {
+        $error_msg = "Patient details have expired after 48hrs. You can only view the patient name.";
     } elseif ($form_type === 'medical_record') {
         $visit_type    = trim($_POST['visit_type']    ?? '');
         $hospital_name = 'Central Medical Center';
@@ -341,7 +355,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <option value="">— Select Patient —</option>
                 <?php foreach ($approved_patients as $ap): ?>
                     <option value="<?php echo $ap['id']; ?>" <?php echo $selected_id == $ap['id'] ? 'selected' : ''; ?>>
-                        <?php echo htmlspecialchars($ap['name']); ?> (NID: <?php echo htmlspecialchars($ap['national_id']); ?>)
+                        <?php if (!empty($ap['details_expired'])): ?>
+                            <?php echo htmlspecialchars($ap['name']); ?> (Access expired)
+                        <?php else: ?>
+                            <?php echo htmlspecialchars($ap['name']); ?> (NID: <?php echo htmlspecialchars($ap['national_id']); ?>)
+                        <?php endif; ?>
                     </option>
                 <?php endforeach; ?>
             </select>
@@ -355,8 +373,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
     </div>
 
+    <?php if ($selected_patient && $selected_access_expired): ?>
+        <div class="alert-custom alert-error"><i class="fa-solid fa-circle-xmark" style="margin-right:6px;"></i>Patient details have expired after 48hrs. You can only view the patient name, and updates are disabled.</div>
+    <?php endif; ?>
+
     <!-- Forms (disabled until patient selected) -->
-    <div class="forms-grid <?php echo !$selected_patient ? 'disabled-overlay' : ''; ?>">
+    <div class="forms-grid <?php echo (!$selected_patient || $selected_access_expired) ? 'disabled-overlay' : ''; ?>">
         <!-- Medical Record Form -->
         <div class="form-card">
             <h5 style="font-size:0.95rem; font-weight:600; color:#0f172a; margin-bottom:18px;">
@@ -390,7 +412,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label>Notes</label>
                     <textarea name="notes" rows="2" placeholder="Additional notes..."></textarea>
                 </div>
-                <button type="submit" class="btn-submit">
+                <button type="submit" class="btn-submit" <?php echo (!$selected_patient || $selected_access_expired) ? 'disabled' : ''; ?>>
                     <i class="fa-solid fa-plus" style="margin-right:6px;"></i> Add Record
                 </button>
             </form>
@@ -424,14 +446,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <label>Notes</label>
                     <textarea name="presc_notes" rows="2" placeholder="Additional instructions..."></textarea>
                 </div>
-                <button type="submit" class="btn-submit presc">
+                <button type="submit" class="btn-submit presc" <?php echo (!$selected_patient || $selected_access_expired) ? 'disabled' : ''; ?>>
                     <i class="fa-solid fa-plus" style="margin-right:6px;"></i> Add Prescription
                 </button>
             </form>
         </div>
     </div>
 
-    <div class="form-card <?php echo !$selected_patient ? 'disabled-overlay' : ''; ?>" style="margin-bottom: 24px;">
+    <div class="form-card <?php echo (!$selected_patient || $selected_access_expired) ? 'disabled-overlay' : ''; ?>" style="margin-bottom: 24px;">
         <h5 style="font-size:0.95rem; font-weight:600; color:#0f172a; margin-bottom:18px;">
             <i class="fa-solid fa-shield-halved" style="color:#0e7490; margin-right:8px;"></i> Privacy Consent Summaries
         </h5>
@@ -457,7 +479,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <textarea name="surgical_typologies_summary_text" rows="3" placeholder="Write surgical typologies privacy summary..." required></textarea>
             </div>
 
-            <button type="submit" class="btn-submit">
+            <button type="submit" class="btn-submit" <?php echo (!$selected_patient || $selected_access_expired) ? 'disabled' : ''; ?>>
                 <i class="fa-solid fa-floppy-disk" style="margin-right:6px;"></i> Save Privacy Summaries
             </button>
         </form>
@@ -470,7 +492,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 
     <!-- Recent Records Preview (only when patient is selected) -->
-    <?php if ($selected_patient): ?>
+    <?php if ($selected_patient && !$selected_access_expired): ?>
     <div class="preview-grid">
         <div class="preview-card">
             <h6 style="font-size:0.88rem; font-weight:600; color:#0f172a; margin-bottom:14px;">
