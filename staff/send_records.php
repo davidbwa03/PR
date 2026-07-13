@@ -28,6 +28,14 @@ try {
 $success_msg = "";
 $error_msg = "";
 $doctors_list = [];
+$hasDoctorStatusColumn = false;
+
+try {
+    $colCheck = $pdo->query("SHOW COLUMNS FROM doctors LIKE 'status'");
+    $hasDoctorStatusColumn = $colCheck && $colCheck->fetch(PDO::FETCH_ASSOC);
+} catch (PDOException $e) {
+    $hasDoctorStatusColumn = false;
+}
 
 // Handle sending records to the requesting doctor
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
@@ -35,7 +43,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
     $doctor_id = (int)($_POST['doctor_id'] ?? 0);
 
     if ($request_id > 0 && $doctor_id > 0) {
-        $stmt_doctor = $pdo->prepare("SELECT name FROM doctors WHERE id = ? LIMIT 1");
+        $doctorLookupSql = $hasDoctorStatusColumn
+            ? "SELECT name FROM doctors WHERE id = ? AND status = 'active' LIMIT 1"
+            : "SELECT name FROM doctors WHERE id = ? LIMIT 1";
+
+        $stmt_doctor = $pdo->prepare($doctorLookupSql);
         $stmt_doctor->execute([$doctor_id]);
         $selected_doctor_name = $stmt_doctor->fetchColumn();
 
@@ -49,7 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
                 $error_msg = "Unable to send records. This request may not be approved yet.";
             }
         } else {
-            $error_msg = "Selected doctor was not found. Please choose a valid doctor.";
+            $error_msg = $hasDoctorStatusColumn
+                ? "Selected doctor is inactive or was not found. Please choose an active doctor."
+                : "Selected doctor was not found. Please choose a valid doctor.";
         }
     } else {
         $error_msg = "Please choose a doctor before sending records.";
@@ -57,7 +71,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
 }
 
 try {
-    $stmt_doctors = $pdo->query("SELECT id, name, specialty FROM doctors ORDER BY name ASC");
+    $doctorsSql = $hasDoctorStatusColumn
+        ? "SELECT id, name, specialty FROM doctors WHERE status = 'active' ORDER BY name ASC"
+        : "SELECT id, name, specialty FROM doctors ORDER BY name ASC";
+
+    $stmt_doctors = $pdo->query($doctorsSql);
     $doctors_list = $stmt_doctors->fetchAll(PDO::FETCH_ASSOC);
 
     // Approved requests still waiting to be dispatched
@@ -181,7 +199,7 @@ try {
             <p class="panel-subtitle">Approved requests whose records have not been sent yet</p>
 
             <?php if (empty($doctors_list)): ?>
-                <div class="alert alert-warning mb-3">No doctors are available. Add a doctor first, then send records.</div>
+                <div class="alert alert-warning mb-3">No active doctors are available. Activate a doctor first, then send records.</div>
             <?php endif; ?>
 
             <?php if (empty($pending_dispatch)): ?>

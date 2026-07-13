@@ -38,10 +38,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $gender = trim($_POST['gender'] ?? '');
     $address = trim($_POST['address'] ?? '');
 
+    $doctorHasHospitalColumn = false;
+    try {
+        $doctorHospitalColumn = $pdo->query("SHOW COLUMNS FROM doctors LIKE 'hospital_name'");
+        $doctorHasHospitalColumn = $doctorHospitalColumn && (bool) $doctorHospitalColumn->fetchColumn();
+    } catch (PDOException $e) {
+        $doctorHasHospitalColumn = false;
+    }
+
     try {
         // Insert into the 'doctors' table
-        $stmt = $pdo->prepare("INSERT INTO doctors (name, specialty, email, password, phone, dob, gender, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([$name, $specialty, $email, $password, $phone, $dob, $gender, $address]);
+        if ($doctorHasHospitalColumn) {
+            $stmt = $pdo->prepare("INSERT INTO doctors (name, specialty, hospital_name, email, password, phone, dob, gender, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$name, $specialty, $hospital_brand_name, $email, $password, $phone, $dob, $gender, $address]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO doctors (name, specialty, email, password, phone, dob, gender, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$name, $specialty, $email, $password, $phone, $dob, $gender, $address]);
+        }
         $message = "Doctor added successfully.";
     } catch (PDOException $e) {
         $message = "Error: Could not add doctor. The email might already be registered.";

@@ -37,10 +37,15 @@ try {
     $stmt_distribution = $pdo->query("SELECT 'Staff' as role, COUNT(*) as count FROM staff UNION SELECT 'Doctors', COUNT(*) FROM doctors UNION SELECT 'Patients', COUNT(*) FROM patients");
     $role_distribution = $stmt_distribution->fetchAll(PDO::FETCH_ASSOC);
 
+    // 4. Get doctor contact details
+    $stmt_doctors = $pdo->query("SELECT name, phone, email FROM doctors ORDER BY name ASC");
+    $doctor_contacts = $stmt_doctors->fetchAll(PDO::FETCH_ASSOC);
+
 } catch (\PDOException $e) {
     $patient_trends = [];
     $status_distribution = [];
     $role_distribution = [];
+    $doctor_contacts = [];
 }
 ?>
 <!DOCTYPE html>
@@ -85,6 +90,11 @@ try {
         .workspace { margin-left: var(--sidebar-width); padding: 40px 48px; }
         .panel-card { background: #ffffff; border: 1px solid var(--border-light); border-radius: 10px; padding: 28px; margin-bottom: 24px; }
         .panel-title { font-size: 16px; font-weight: 700; color: var(--text-main); margin-bottom: 20px; }
+        .doctor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px; }
+        .doctor-contact-card { border: 1px solid var(--border-light); border-radius: 10px; padding: 16px; background: #f8fafc; }
+        .doctor-name { font-size: 15px; font-weight: 700; margin-bottom: 10px; color: var(--text-main); }
+        .doctor-meta { margin: 0; font-size: 13px; color: var(--text-sub); line-height: 1.6; }
+        .doctor-meta strong { color: var(--text-main); font-weight: 600; }
     </style>
 </head>
 <body>
@@ -156,6 +166,23 @@ try {
                 </div>
             <?php else: ?>
                 <p class="text-muted mb-0">Request status will appear after a request is submitted.</p>
+            <?php endif; ?>
+        </div>
+
+        <div class="panel-card">
+            <h2 class="panel-title">Doctor Contact Details</h2>
+            <?php if (!empty($doctor_contacts)): ?>
+                <div class="doctor-grid">
+                    <?php foreach ($doctor_contacts as $doctor): ?>
+                        <div class="doctor-contact-card">
+                            <div class="doctor-name"><?= htmlspecialchars($doctor['name'] ?: 'Unnamed Doctor'); ?></div>
+                            <p class="doctor-meta"><strong>Phone:</strong> <?= htmlspecialchars($doctor['phone'] ?: 'Not provided'); ?></p>
+                            <p class="doctor-meta"><strong>Email:</strong> <?= htmlspecialchars($doctor['email'] ?: 'Not provided'); ?></p>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <p class="text-muted mb-0">No doctors found yet.</p>
             <?php endif; ?>
         </div>
     </main>
