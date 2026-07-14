@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 session_start();
 require_once 'db.php';
 
@@ -43,11 +43,56 @@ if (isset($_GET['download']) && $_GET['download'] === 'csv') {
     $hospitals = (int) $pdo->query("SELECT COUNT(*) FROM hospitals")->fetchColumn();
     $doctors = (int) $pdo->query("SELECT COUNT(*) FROM doctors")->fetchColumn();
     $patients = (int) $pdo->query("SELECT COUNT(*) FROM patients")->fetchColumn();
+    $claims = 0;
+    $claimsByHospitalRows = [];
+
+    try {
+        $claims = (int) $pdo->query("SELECT COUNT(*) FROM claims")->fetchColumn();
+        $claimsByHospitalStmt = $pdo->query(
+            "SELECT
+                COALESCE(NULLIF(TRIM(h.name), ''), 'Unknown') AS hospital_name,
+                COUNT(*) AS claim_total,
+                MAX(h.created_at) AS hospital_created_at
+             FROM claims c
+             LEFT JOIN hospitals h ON h.id = c.hospital_id
+             GROUP BY COALESCE(NULLIF(TRIM(h.name), ''), 'Unknown')
+             ORDER BY claim_total DESC, hospital_name ASC"
+        );
+        $claimsByHospitalRows = $claimsByHospitalStmt ? $claimsByHospitalStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+    } catch (PDOException $e) {
+        $claims = 0;
+        $claimsByHospitalRows = [];
+    }
 
     fputcsv($output, ['Summary']);
     fputcsv($output, ['Total Hospitals', $hospitals]);
     fputcsv($output, ['Total Doctors', $doctors]);
     fputcsv($output, ['Total Patients', $patients]);
+    fputcsv($output, ['Total Claims', $claims]);
+    fputcsv($output, []);
+
+    fputcsv($output, ['Claims by Hospital']);
+    fputcsv($output, ['Hospital Name', 'Number of Claims', 'Hospital Created Date']);
+    if (empty($claimsByHospitalRows)) {
+        fputcsv($output, ['No claims found', '0', 'N/A']);
+    } else {
+        foreach ($claimsByHospitalRows as $claimRow) {
+            $hospitalCreatedDate = 'N/A';
+            if (!empty($claimRow['hospital_created_at'])) {
+                try {
+                    $hospitalCreatedDate = (new DateTime((string) $claimRow['hospital_created_at']))->format('Y-m-d');
+                } catch (Exception $e) {
+                    $hospitalCreatedDate = (string) $claimRow['hospital_created_at'];
+                }
+            }
+
+            fputcsv($output, [
+                (string) ($claimRow['hospital_name'] ?? 'Unknown'),
+                (int) ($claimRow['claim_total'] ?? 0),
+                $hospitalCreatedDate,
+            ]);
+        }
+    }
     fputcsv($output, []);
 
     fputcsv($output, ['Recent Doctor Registrations']);
@@ -84,8 +129,29 @@ if (isset($_GET['download']) && $_GET['download'] === 'csv') {
 $stats = [
     'hospitals' => $pdo->query("SELECT COUNT(*) FROM hospitals")->fetchColumn(),
     'doctors'   => $pdo->query("SELECT COUNT(*) FROM doctors")->fetchColumn(),
-    'patients'  => $pdo->query("SELECT COUNT(*) FROM patients")->fetchColumn()
+    'patients'  => $pdo->query("SELECT COUNT(*) FROM patients")->fetchColumn(),
+    'claims'    => 0,
 ];
+
+$claims_by_hospital = [];
+try {
+    $stats['claims'] = (int) $pdo->query("SELECT COUNT(*) FROM claims")->fetchColumn();
+
+    $claimsByHospitalStmt = $pdo->query(
+        "SELECT
+            COALESCE(NULLIF(TRIM(h.name), ''), 'Unknown') AS hospital_name,
+            COUNT(*) AS claim_total,
+            MAX(h.created_at) AS hospital_created_at
+         FROM claims c
+         LEFT JOIN hospitals h ON h.id = c.hospital_id
+         GROUP BY COALESCE(NULLIF(TRIM(h.name), ''), 'Unknown')
+         ORDER BY claim_total DESC, hospital_name ASC"
+    );
+    $claims_by_hospital = $claimsByHospitalStmt ? $claimsByHospitalStmt->fetchAll(PDO::FETCH_ASSOC) : [];
+} catch (PDOException $e) {
+    $stats['claims'] = 0;
+    $claims_by_hospital = [];
+}
 
 // Fetch list of latest records for a summary table
 $doctorHospitalSelect = $doctorHasHospitalName
@@ -172,7 +238,7 @@ $latest_doctors = $pdo->query("SELECT name, specialty, {$doctorHospitalSelect}, 
         <a class="nav-link" href="add_hospital.php"><i class="fa-solid fa-plus me-2"></i>Add Hospital</a>
         <a class="nav-link" href="edit_hospitals.php"><i class="fa-solid fa-pen me-2"></i>Edit Hospitals</a>
         <a class="nav-link" href="manage_hospitals.php"><i class="fa-solid fa-list me-2"></i>Manage Hospitals</a>
-        <a class="nav-link" href="delete_hospitals.php"><i class="fa-solid fa-trash me-2"></i>Delete Hospitals</a>
+        <a class="nav-link" href="insurance_provider.php"><i class="fa-solid fa-file-medical me-2"></i>Insurance Providers</a>
 
         <div class="nav-section">Directory</div>
         <a class="nav-link" href="view_doctors.php"><i class="fa-solid fa-user-doctor me-2"></i>View All Doctors</a>
@@ -191,22 +257,28 @@ $latest_doctors = $pdo->query("SELECT name, specialty, {$doctorHospitalSelect}, 
     <h4 class="mb-4">System Reports & Overview</h4>
 
     <div class="row mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
                 <h3><?= $stats['hospitals'] ?></h3>
                 <p class="text-muted mb-0">Total Hospitals</p>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
                 <h3><?= $stats['doctors'] ?></h3>
                 <p class="text-muted mb-0">Total Doctors</p>
             </div>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <div class="stat-card">
                 <h3><?= $stats['patients'] ?></h3>
                 <p class="text-muted mb-0">Total Patients</p>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="stat-card">
+                <h3><?= $stats['claims'] ?></h3>
+                <p class="text-muted mb-0">Total Claims</p>
             </div>
         </div>
     </div>
@@ -239,8 +311,47 @@ $latest_doctors = $pdo->query("SELECT name, specialty, {$doctorHospitalSelect}, 
             <button type="button" class="btn btn-primary" onclick="downloadReportPdf()">
                 Download Report PDF
             </button>
-            
         </div>
+    </div>
+
+    <div class="card p-4 mt-4">
+        <h5>Claims by Hospital</h5>
+        <table class="table mt-3">
+            <thead>
+                <tr>
+                    <th>Hospital Name</th>
+                    <th>Number of Claims</th>
+                    <th>Hospital Created Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (empty($claims_by_hospital)): ?>
+                <tr>
+                    <td>No claims found</td>
+                    <td>0</td>
+                    <td>N/A</td>
+                </tr>
+                <?php else: ?>
+                    <?php foreach ($claims_by_hospital as $claim): ?>
+                    <?php
+                        $hospitalCreatedDate = 'N/A';
+                        if (!empty($claim['hospital_created_at'])) {
+                            try {
+                                $hospitalCreatedDate = (new DateTime((string) $claim['hospital_created_at']))->format('Y-m-d');
+                            } catch (Exception $e) {
+                                $hospitalCreatedDate = (string) $claim['hospital_created_at'];
+                            }
+                        }
+                    ?>
+                    <tr>
+                        <td><?= htmlspecialchars($claim['hospital_name'] ?? 'Unknown') ?></td>
+                        <td><?= (int) ($claim['claim_total'] ?? 0) ?></td>
+                        <td><?= htmlspecialchars($hospitalCreatedDate) ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+            </tbody>
+        </table>
     </div>
 </div>
 
@@ -254,10 +365,12 @@ function downloadReportPdf() {
     const stats = {
         hospitals: <?= (int) $stats['hospitals'] ?>,
         doctors: <?= (int) $stats['doctors'] ?>,
-        patients: <?= (int) $stats['patients'] ?>
+        patients: <?= (int) $stats['patients'] ?>,
+        claims: <?= (int) $stats['claims'] ?>
     };
 
     const recentDoctors = <?= json_encode($latest_doctors, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const claimsByHospital = <?= json_encode($claims_by_hospital, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     const generatedAt = new Date();
     const formattedDate = generatedAt.toLocaleString();
@@ -277,38 +390,48 @@ function downloadReportPdf() {
     const summaryCards = [
         { label: 'Total Hospitals', value: Number(stats.hospitals || 0).toLocaleString() },
         { label: 'Total Doctors', value: Number(stats.doctors || 0).toLocaleString() },
-        { label: 'Total Patients', value: Number(stats.patients || 0).toLocaleString() }
+        { label: 'Total Patients', value: Number(stats.patients || 0).toLocaleString() },
+        { label: 'Total Claims', value: Number(stats.claims || 0).toLocaleString() }
     ];
 
     const cardStartX = 40;
     const cardStartY = 112;
     const cardGap = 12;
     const contentWidth = 515;
-    const cardWidth = (contentWidth - (cardGap * 2)) / 3;
+    const cardWidth = (contentWidth - cardGap) / 2;
     const cardHeight = 82;
+    const pageHeight = doc.internal.pageSize.getHeight();
 
     summaryCards.forEach(function (card, index) {
-        const x = cardStartX + (index * (cardWidth + cardGap));
+        const row = Math.floor(index / 2);
+        const col = index % 2;
+        const x = cardStartX + (col * (cardWidth + cardGap));
+        const y = cardStartY + (row * (cardHeight + 12));
 
         doc.setFillColor(255, 255, 255);
         doc.setDrawColor(224, 230, 232);
-        doc.roundedRect(x, cardStartY, cardWidth, cardHeight, 8, 8, 'FD');
+        doc.roundedRect(x, y, cardWidth, cardHeight, 8, 8, 'FD');
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(10);
         doc.setTextColor(106, 117, 120);
-        doc.text(card.label, x + 12, cardStartY + 24);
+        doc.text(card.label, x + 12, y + 24);
 
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(23);
         doc.setTextColor(16, 124, 145);
-        doc.text(card.value, x + 12, cardStartY + 58);
+        doc.text(card.value, x + 12, y + 58);
     });
+
+    const summaryRows = Math.ceil(summaryCards.length / 2);
+    const summaryBottomY = cardStartY + (summaryRows * cardHeight) + ((summaryRows - 1) * 12);
+    const doctorsTitleY = summaryBottomY + 28;
+    const doctorsTableStartY = doctorsTitleY + 12;
 
     doc.setTextColor(28, 39, 51);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('Recent Doctor Registrations', 40, 224);
+    doc.text('Recent Doctor Registrations', 40, doctorsTitleY);
 
     const tableRows = recentDoctors.map(function (docRow) {
         return [
@@ -321,9 +444,46 @@ function downloadReportPdf() {
     });
 
     doc.autoTable({
-        startY: 236,
+        startY: doctorsTableStartY,
         head: [['Doctor Name', 'Specialty', 'Hospital', 'Phone', 'Status']],
         body: tableRows.length ? tableRows : [['No recent doctor registrations', '', '', '', '']],
+        styles: { font: 'helvetica', fontSize: 10 },
+        headStyles: { fillColor: [16, 124, 145] }
+    });
+
+    const claimsRows = claimsByHospital.map(function (claimRow) {
+        let createdDate = 'N/A';
+        if (claimRow.hospital_created_at) {
+            const parsed = new Date(claimRow.hospital_created_at);
+            if (!Number.isNaN(parsed.getTime())) {
+                createdDate = parsed.toISOString().slice(0, 10);
+            } else {
+                createdDate = String(claimRow.hospital_created_at);
+            }
+        }
+
+        return [
+            claimRow.hospital_name || 'Unknown',
+            Number(claimRow.claim_total || 0).toLocaleString(),
+            createdDate
+        ];
+    });
+
+    let claimsStartY = (doc.lastAutoTable && doc.lastAutoTable.finalY ? doc.lastAutoTable.finalY : doctorsTableStartY) + 24;
+    if (claimsStartY > pageHeight - 40) {
+        doc.addPage();
+        claimsStartY = 50;
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(28, 39, 51);
+    doc.text('Claims by Hospital', 40, claimsStartY);
+
+    doc.autoTable({
+        startY: claimsStartY + 12,
+        head: [['Hospital Name', 'Number of Claims', 'Hospital Created Date']],
+        body: claimsRows.length ? claimsRows : [['No claims found', '0', 'N/A']],
         styles: { font: 'helvetica', fontSize: 10 },
         headStyles: { fillColor: [16, 124, 145] }
     });

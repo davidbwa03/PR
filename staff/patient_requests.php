@@ -143,6 +143,9 @@ function statusBadge($status) {
                 $displayName = $req['patient_name'] ?: ('Patient #' . $req['patient_id']);
                 $isApproved = strtolower((string)$req['request_status']) === 'approved';
                 $approvalTime = !empty($req['updated_at']) ? strtotime((string)$req['updated_at']) : false;
+               
+                //expiring details after 48 hours of approval
+
                 $detailsExpired = $isApproved && $approvalTime !== false && (time() - $approvalTime) > (48 * 60 * 60);
                 $requestSentAt = !empty($req['requested_at']) ? date('Y-m-d H:i', strtotime((string)$req['requested_at'])) : 'N/A';
             ?>

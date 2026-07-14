@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 session_start();
 require_once 'db.php';
 
@@ -219,7 +219,7 @@ $hospitals = $pdo->query("SELECT * FROM hospitals ORDER BY id DESC")->fetchAll(P
         <a class="nav-link" href="add_hospital.php"><i class="fa-solid fa-plus me-2"></i>Add Hospital</a>
         <a class="nav-link active" href="edit_hospitals.php"><i class="fa-solid fa-pen me-2"></i>Edit Hospitals</a>
         <a class="nav-link" href="manage_hospitals.php"><i class="fa-solid fa-list me-2"></i>Manage Hospitals</a>
-        <a class="nav-link" href="delete_hospitals.php"><i class="fa-solid fa-trash me-2"></i>Delete Hospitals</a>
+        <a class="nav-link" href="insurance_provider.php"><i class="fa-solid fa-file-medical me-2"></i>Insurance Providers</a>
 
         <div class="nav-section">Directory</div>
         <a class="nav-link" href="view_doctors.php"><i class="fa-solid fa-user-doctor me-2"></i>View All Doctors</a>
@@ -315,3 +315,4 @@ $hospitals = $pdo->query("SELECT * FROM hospitals ORDER BY id DESC")->fetchAll(P
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
+
