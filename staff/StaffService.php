@@ -284,8 +284,28 @@ class StaffService
             return ['success' => false, 'message' => 'Invalid request.'];
         }
 
-        $stmt = $this->pdo->prepare("UPDATE access_requests SET records_sent = 1, updated_at = NOW() WHERE id = ?");
+        $requestStmt = $this->pdo->prepare("SELECT patient_id, doctor_name FROM access_requests WHERE id = ? AND request_status = 'approved' LIMIT 1");
+        $requestStmt->execute([$requestId]);
+        $requestDetails = $requestStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $patientId = (int) ($requestDetails['patient_id'] ?? 0);
+        $doctorName = trim((string) ($requestDetails['doctor_name'] ?? ''));
+
+        if ($patientId <= 0 || $doctorName === '') {
+            return ['success' => false, 'message' => 'Cannot send records while this request is still pending or declined.'];
+        }
+
+        $duplicateStmt = $this->pdo->prepare("SELECT 1 FROM access_requests WHERE patient_id = ? AND doctor_name = ? AND records_sent = 1 LIMIT 1");
+        $duplicateStmt->execute([$patientId, $doctorName]);
+        if ((bool) $duplicateStmt->fetchColumn()) {
+            return ['success' => false, 'message' => "This doctor already has this patient's details."];
+        }
+
+        $stmt = $this->pdo->prepare("UPDATE access_requests SET records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved' AND (records_sent IS NULL OR records_sent = 0)");
         $stmt->execute([$requestId]);
+
+        if ($stmt->rowCount() === 0) {
+            return ['success' => false, 'message' => 'Cannot send records while this request is still pending or declined.'];
+        }
 
         return ['success' => true, 'message' => 'Medical records successfully sent to the doctor.'];
     }

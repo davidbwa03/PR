@@ -28,6 +28,7 @@ try {
 $success_msg = "";
 $error_msg = "";
 $doctors_list = [];
+$patientSentDoctorMap = [];
 $hasDoctorStatusColumn = false;
 
 try {
@@ -52,17 +53,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_records'])) {
         $selected_doctor_name = $stmt_doctor->fetchColumn();
 
         if ($selected_doctor_name) {
-            $sender_facility = ($hospital_brand_name !== '') ? $hospital_brand_name : 'Central Medical Center';
-            $stmt = $pdo->prepare("UPDATE access_requests SET doctor_name = ?, medical_facility = ?, records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved'");
-            $stmt->execute([$selected_doctor_name, $sender_facility, $request_id]);
-            if ($stmt->rowCount() > 0) {
-                $success_msg = "Medical records successfully sent to Dr. " . $selected_doctor_name . ".";
-            } else {
+            $stmt_request = $pdo->prepare("SELECT patient_id, records_sent FROM access_requests WHERE id = ? AND request_status = 'approved' LIMIT 1");
+            $stmt_request->execute([$request_id]);
+            $request_data = $stmt_request->fetch(PDO::FETCH_ASSOC) ?: [];
+            $request_patient_id = (int) ($request_data['patient_id'] ?? 0);
+            $request_already_sent = (int) ($request_data['records_sent'] ?? 0) === 1;
+
+            if ($request_patient_id <= 0) {
                 $error_msg = "Unable to send records. This request may not be approved yet.";
+            } else {
+                $stmt_duplicate = $pdo->prepare("SELECT 1 FROM access_requests WHERE patient_id = ? AND doctor_name = ? AND records_sent = 1 LIMIT 1");
+                $stmt_duplicate->execute([$request_patient_id, $selected_doctor_name]);
+                $already_sent_to_doctor = (bool) $stmt_duplicate->fetchColumn();
+
+                if ($already_sent_to_doctor) {
+                    $error_msg = "This doctor already has this patient's details. Please choose a doctor who has not received them.";
+                } else {
+                    $sender_facility = ($hospital_brand_name !== '') ? $hospital_brand_name : 'Central Medical Center';
+                    if ($request_already_sent) {
+                        // Keep original sent history intact and create a new approved dispatch for another doctor.
+                        $stmt_insert = $pdo->prepare("INSERT INTO access_requests (patient_id, doctor_name, medical_facility, request_status, records_sent, requested_at, updated_at) VALUES (?, ?, ?, 'approved', 1, NOW(), NOW())");
+                        $stmt_insert->execute([$request_patient_id, $selected_doctor_name, $sender_facility]);
+                        $success_msg = "Medical records successfully sent to Dr. " . $selected_doctor_name . ".";
+                    } else {
+                        $stmt = $pdo->prepare("UPDATE access_requests SET doctor_name = ?, medical_facility = ?, records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved' AND (records_sent IS NULL OR records_sent = 0)");
+                        $stmt->execute([$selected_doctor_name, $sender_facility, $request_id]);
+                        if ($stmt->rowCount() > 0) {
+                            $success_msg = "Medical records successfully sent to Dr. " . $selected_doctor_name . ".";
+                        } else {
+                            $error_msg = "Unable to send records. This request may not be approved yet.";
+                        }
+                    }
+                }
             }
         } else {
             $error_msg = $hasDoctorStatusColumn
-                ? "Selected doctor is inactive or was not found. Please choose an active doctor."
+                ? "Selected doctor is pending, inactive, or was not found. Please choose an active doctor."
                 : "Selected doctor was not found. Please choose a valid doctor.";
         }
     } else {
@@ -78,13 +104,13 @@ try {
     $stmt_doctors = $pdo->query($doctorsSql);
     $doctors_list = $stmt_doctors->fetchAll(PDO::FETCH_ASSOC);
 
-    // Approved requests still waiting to be dispatched
+    // Approved requests that may still be dispatched to at least one more doctor
     $stmt_pending = $pdo->query("
         SELECT ar.id, ar.patient_id, ar.doctor_name, ar.medical_facility, ar.requested_at, ar.updated_at,
                p.name AS patient_name, p.national_id AS patient_national_id
         FROM access_requests ar
         LEFT JOIN patients p ON p.id = ar.patient_id
-        WHERE ar.request_status = 'approved' AND (ar.records_sent IS NULL OR ar.records_sent = 0)
+        WHERE ar.request_status = 'approved'
         ORDER BY ar.updated_at DESC
     ");
     $pending_dispatch = $stmt_pending->fetchAll(PDO::FETCH_ASSOC);
@@ -92,18 +118,34 @@ try {
     // Recently sent records, for reference
     $stmt_sent = $pdo->query("
         SELECT ar.id, ar.patient_id, ar.doctor_name, ar.medical_facility, ar.updated_at,
-               p.name AS patient_name, p.national_id AS patient_national_id
+               p.name AS patient_name, p.national_id AS patient_national_id,
+               d.specialty AS doctor_specialty, d.email AS doctor_email, d.phone AS doctor_phone
         FROM access_requests ar
         LEFT JOIN patients p ON p.id = ar.patient_id
+        LEFT JOIN doctors d ON d.name = ar.doctor_name
         WHERE ar.request_status = 'approved' AND ar.records_sent = 1
         ORDER BY ar.updated_at DESC
         LIMIT 10
     ");
     $sent_history = $stmt_sent->fetchAll(PDO::FETCH_ASSOC);
+
+    $stmt_sent_pairs = $pdo->query("
+        SELECT patient_id, doctor_name
+        FROM access_requests
+        WHERE request_status = 'approved' AND records_sent = 1
+    ");
+    foreach ($stmt_sent_pairs->fetchAll(PDO::FETCH_ASSOC) as $pair) {
+        $pid = (int) ($pair['patient_id'] ?? 0);
+        $dname = trim((string) ($pair['doctor_name'] ?? ''));
+        if ($pid > 0 && $dname !== '') {
+            $patientSentDoctorMap[$pid][mb_strtolower($dname)] = true;
+        }
+    }
 } catch (\PDOException $e) {
     $doctors_list = [];
     $pending_dispatch = [];
     $sent_history = [];
+    $patientSentDoctorMap = [];
 }
 ?>
 <!DOCTYPE html>
@@ -205,9 +247,36 @@ try {
             <?php if (empty($pending_dispatch)): ?>
                 <p class="text-muted mb-0">Nothing waiting to be sent right now.</p>
             <?php else: ?>
+                <?php
+                    $renderedPatients = [];
+                    $hasAwaitingDispatch = false;
+                ?>
                 <?php foreach ($pending_dispatch as $req):
+                    $patientId = (int) ($req['patient_id'] ?? 0);
+                    if ($patientId <= 0 || isset($renderedPatients[$patientId])) {
+                        continue;
+                    }
+
                     $displayName = $req['patient_name'] ?: ('Patient #' . $req['patient_id']);
                     $nationalId = $req['patient_national_id'] ?: '—';
+                    $eligibleDoctors = array_values(array_filter(
+                        $doctors_list,
+                        static function (array $doc) use ($req, $patientSentDoctorMap): bool {
+                            $docName = trim((string) ($doc['name'] ?? ''));
+                            if ($docName === '') {
+                                return false;
+                            }
+
+                            return !isset($patientSentDoctorMap[(int) $req['patient_id']][mb_strtolower($docName)]);
+                        }
+                    ));
+
+                    if (empty($eligibleDoctors)) {
+                        continue;
+                    }
+
+                    $renderedPatients[$patientId] = true;
+                    $hasAwaitingDispatch = true;
                 ?>
                 <div class="dispatch-row">
                     <div>
@@ -218,15 +287,18 @@ try {
                     <form method="POST" class="dispatch-form">
                         <input type="hidden" name="request_id" value="<?= (int)$req['id']; ?>">
                         <select name="doctor_id" class="form-select doctor-select" required>
-                            <option value="">Choose Doctor</option>
-                            <?php foreach ($doctors_list as $doc): ?>
+                            <option value=""><?= empty($eligibleDoctors) ? 'No eligible doctor' : 'Choose Doctor'; ?></option>
+                            <?php foreach ($eligibleDoctors as $doc): ?>
                                 <option value="<?= (int)$doc['id']; ?>"><?= htmlspecialchars($doc['name']); ?><?= !empty($doc['specialty']) ? ' - ' . htmlspecialchars($doc['specialty']) : ''; ?></option>
                             <?php endforeach; ?>
                         </select>
-                        <button type="submit" name="send_records" class="send-btn" <?= empty($doctors_list) ? 'disabled' : ''; ?>><i class="bi bi-send-fill"></i> Send Records</button>
+                        <button type="submit" name="send_records" class="send-btn" <?= empty($eligibleDoctors) ? 'disabled' : ''; ?>><i class="bi bi-send-fill"></i> Send Records</button>
                     </form>
                 </div>
                 <?php endforeach; ?>
+                <?php if (!$hasAwaitingDispatch): ?>
+                    <p class="text-muted mb-0">Nothing waiting to be sent right now.</p>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
 
@@ -240,11 +312,24 @@ try {
                 <?php foreach ($sent_history as $req):
                     $displayName = $req['patient_name'] ?: ('Patient #' . $req['patient_id']);
                     $nationalId = $req['patient_national_id'] ?: '—';
+                    $eligibleDoctors = array_values(array_filter(
+                        $doctors_list,
+                        static function (array $doc) use ($req, $patientSentDoctorMap): bool {
+                            $docName = trim((string) ($doc['name'] ?? ''));
+                            if ($docName === '') {
+                                return false;
+                            }
+
+                            return !isset($patientSentDoctorMap[(int) $req['patient_id']][mb_strtolower($docName)]);
+                        }
+                    ));
                 ?>
                 <div class="dispatch-row">
                     <div>
                         <p class="dispatch-name"><?= htmlspecialchars($displayName); ?></p>
                         <p class="dispatch-meta">National ID: <span><?= htmlspecialchars($nationalId); ?></span> &nbsp;•&nbsp; Sent To: <span><?= htmlspecialchars($req['doctor_name']); ?></span></p>
+                        <p class="dispatch-meta">Doctor Specialty: <span><?= htmlspecialchars($req['doctor_specialty'] ?? 'Not available'); ?></span></p>
+                        <p class="dispatch-meta">Doctor Email: <span><?= htmlspecialchars($req['doctor_email'] ?? 'Not available'); ?></span> &nbsp;•&nbsp; Doctor Phone: <span><?= htmlspecialchars($req['doctor_phone'] ?? 'Not available'); ?></span></p>
                         <p class="dispatch-meta">Sent: <span><?= htmlspecialchars(date('Y-m-d H:i', strtotime($req['updated_at']))); ?></span></p>
                     </div>
                     <span class="custom-badge badge-approved"><i class="bi bi-check-circle-fill"></i> Sent</span>

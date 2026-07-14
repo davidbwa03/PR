@@ -82,9 +82,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     elseif (isset($_POST['send_records'])) {
         $request_id = (int)$_POST['request_id'];
         if ($request_id > 0) {
-            $stmt = $pdo->prepare("UPDATE access_requests SET records_sent = 1, updated_at = NOW() WHERE id = ?");
-            $stmt->execute([$request_id]);
-            $success_msg = "Medical records successfully sent to the doctor.";
+            $stmt_request = $pdo->prepare("SELECT patient_id, doctor_name FROM access_requests WHERE id = ? AND request_status = 'approved' LIMIT 1");
+            $stmt_request->execute([$request_id]);
+            $request_details = $stmt_request->fetch(PDO::FETCH_ASSOC) ?: [];
+            $request_patient_id = (int) ($request_details['patient_id'] ?? 0);
+            $request_doctor_name = trim((string) ($request_details['doctor_name'] ?? ''));
+
+            if ($request_patient_id <= 0 || $request_doctor_name === '') {
+                $error_msg = "Cannot send records while this request is still pending or declined.";
+            } else {
+                $stmt_duplicate = $pdo->prepare("SELECT 1 FROM access_requests WHERE patient_id = ? AND doctor_name = ? AND records_sent = 1 LIMIT 1");
+                $stmt_duplicate->execute([$request_patient_id, $request_doctor_name]);
+                $already_sent_to_doctor = (bool) $stmt_duplicate->fetchColumn();
+
+                if ($already_sent_to_doctor) {
+                    $error_msg = "This doctor already has this patient's details.";
+                } else {
+                    $stmt = $pdo->prepare("UPDATE access_requests SET records_sent = 1, updated_at = NOW() WHERE id = ? AND request_status = 'approved' AND (records_sent IS NULL OR records_sent = 0)");
+                    $stmt->execute([$request_id]);
+                    if ($stmt->rowCount() > 0) {
+                        $success_msg = "Medical records successfully sent to the doctor.";
+                    } else {
+                        $error_msg = "Cannot send records while this request is still pending or declined.";
+                    }
+                }
+            }
         }
     }
 }
@@ -235,7 +257,7 @@ try {
             <p class="panel-subtitle">Request patient data from insurance system and other hospitals</p>
             <form action="dashboard.php" method="POST" class="row g-3">
                 <div class="col-md-10">
-                    <input type="text" name="patient_id_input" class="form-control" placeholder="Enter Patient DB ID, National ID, Email, or PT-YYYY-ID" required>
+                    <input type="text" name="patient_id_input" class="form-control" placeholder="Enter National ID Or Email" required>
                 </div>
                 <div class="col-md-2">
                     <button type="submit" name="request_summary" class="btn btn-primary w-100" style="background-color: var(--teal-accent); border: none;">Request Data</button>

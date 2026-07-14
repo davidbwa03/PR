@@ -397,14 +397,69 @@ class StaffServiceTest extends TestCase
     public function testSendRecordsToDoctorSucceeds(): void
     {
         $pdo = $this->makePdoWithQueryRouting([], true);
-        $stmt = $this->createMock(PDOStatement::class);
-        $stmt->expects($this->once())->method('execute')->with([9])->willReturn(true);
-        $pdo->method('prepare')->willReturn($stmt);
+
+        $lookupStmt = $this->createMock(PDOStatement::class);
+        $lookupStmt->expects($this->once())->method('execute')->with([9])->willReturn(true);
+        $lookupStmt->method('fetch')->willReturn(['patient_id' => 3, 'doctor_name' => 'Dr. Peliot B']);
+
+        $duplicateStmt = $this->createMock(PDOStatement::class);
+        $duplicateStmt->expects($this->once())->method('execute')->with([3, 'Dr. Peliot B'])->willReturn(true);
+        $duplicateStmt->method('fetchColumn')->willReturn(false);
+
+        $updateStmt = $this->createMock(PDOStatement::class);
+        $updateStmt->expects($this->once())->method('execute')->with([9])->willReturn(true);
+        $updateStmt->method('rowCount')->willReturn(1);
+
+        $pdo->expects($this->exactly(3))
+            ->method('prepare')
+            ->willReturnOnConsecutiveCalls($lookupStmt, $duplicateStmt, $updateStmt);
 
         $service = new StaffService($pdo);
         $result = $service->sendRecordsToDoctor(9);
 
         $this->assertTrue($result['success']);
+    }
+
+    public function testSendRecordsToDoctorRejectsPendingOrDeclinedRequest(): void
+    {
+        $pdo = $this->makePdoWithQueryRouting([], true);
+
+        $lookupStmt = $this->createMock(PDOStatement::class);
+        $lookupStmt->expects($this->once())->method('execute')->with([9])->willReturn(true);
+        $lookupStmt->method('fetch')->willReturn(false);
+
+        $pdo->expects($this->once())
+            ->method('prepare')
+            ->willReturn($lookupStmt);
+
+        $service = new StaffService($pdo);
+        $result = $service->sendRecordsToDoctor(9);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('pending or declined', $result['message']);
+    }
+
+    public function testSendRecordsToDoctorRejectsDuplicateSameDay(): void
+    {
+        $pdo = $this->makePdoWithQueryRouting([], true);
+
+        $lookupStmt = $this->createMock(PDOStatement::class);
+        $lookupStmt->expects($this->once())->method('execute')->with([9])->willReturn(true);
+        $lookupStmt->method('fetch')->willReturn(['patient_id' => 3, 'doctor_name' => 'Dr. Peliot B']);
+
+        $duplicateStmt = $this->createMock(PDOStatement::class);
+        $duplicateStmt->expects($this->once())->method('execute')->with([3, 'Dr. Peliot B'])->willReturn(true);
+        $duplicateStmt->method('fetchColumn')->willReturn(1);
+
+        $pdo->expects($this->exactly(2))
+            ->method('prepare')
+            ->willReturnOnConsecutiveCalls($lookupStmt, $duplicateStmt);
+
+        $service = new StaffService($pdo);
+        $result = $service->sendRecordsToDoctor(9);
+
+        $this->assertFalse($result['success']);
+        $this->assertStringContainsString('already has this patient', $result['message']);
     }
 
     // ------------------------------------------------------------------

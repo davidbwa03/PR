@@ -39,6 +39,16 @@ $stmt_sent = $pdo->prepare("SELECT id, doctor_name, medical_facility, updated_at
 $stmt_sent->execute(['pid' => $real_id]);
 $recent_sent = $stmt_sent->fetchAll(PDO::FETCH_ASSOC);
 
+// Fetch accepted/approved requests history for this patient
+$stmt_accepted = $pdo->prepare("SELECT id, doctor_name AS hospital_admin_name, medical_facility, requested_at, updated_at
+                                                                FROM access_requests
+                                                                WHERE patient_id = :pid
+                                                                    AND request_status = 'approved'
+                                                                ORDER BY COALESCE(updated_at, requested_at) DESC
+                                                                LIMIT 8");
+$stmt_accepted->execute(['pid' => $real_id]);
+$accepted_requests = $stmt_accepted->fetchAll(PDO::FETCH_ASSOC);
+
 // Fetch declined/rejected requests history for this patient
 $stmt_declined = $pdo->prepare("SELECT id, doctor_name AS hospital_admin_name, medical_facility, requested_at, updated_at
                                                                  FROM access_requests
@@ -130,6 +140,23 @@ $declined_requests = $stmt_declined->fetchAll(PDO::FETCH_ASSOC);
             <?php endforeach; ?>
         <?php else: ?>
             <p class="text-muted mt-2 mb-0">No records have been sent to any doctor yet.</p>
+        <?php endif; ?>
+    </section>
+
+    <section class="card-custom border-success" style="border-left: 5px solid #22c55e;">
+        <h5><i class="fa-solid fa-circle-check text-success me-2"></i>Accepted Requests History</h5>
+        <p class="text-muted mb-3">Hospitals you approved to access your patient details.</p>
+
+        <?php if (!empty($accepted_requests)): ?>
+            <?php foreach ($accepted_requests as $accepted): ?>
+                <div class="sent-item">
+                    <p class="sent-title"><?php echo htmlspecialchars($accepted['medical_facility'] ?? 'No facility provided'); ?></p>
+                    <p class="sent-meta">Requested by: <span><?php echo htmlspecialchars($accepted['hospital_admin_name'] ?? 'Unknown Admin'); ?></span></p>
+                    <p class="sent-meta">Accepted at: <span><?php echo !empty($accepted['updated_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($accepted['updated_at']))) : (!empty($accepted['requested_at']) ? htmlspecialchars(date('Y-m-d H:i', strtotime($accepted['requested_at']))) : 'N/A'); ?></span></p>
+                </div>
+            <?php endforeach; ?>
+        <?php else: ?>
+            <p class="text-muted mt-2 mb-0">You have not accepted any requests yet.</p>
         <?php endif; ?>
     </section>
 

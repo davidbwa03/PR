@@ -22,21 +22,6 @@ if (in_array('status', $columns, true)) {
     $statusColumn = 'request_status';
 }
 
-// Handle Approve/Reject Actions
-if (isset($_GET['action']) && isset($_GET['id'])) {
-    $action = $_GET['action'];
-    $id = (int)$_GET['id'];
-    $newStatus = ($action === 'approve') ? 'approved' : 'rejected';
-
-    if ($statusColumn !== null) {
-        $stmt = $pdo->prepare("UPDATE access_requests SET {$statusColumn} = ? WHERE id = ?");
-        $stmt->execute([$newStatus, $id]);
-    }
-    
-    header("Location: access_requests.php?msg=success");
-    exit();
-}
-
 // Fetch all requests with safe ordering across schema variations.
 $orderBy = 'id DESC';
 if (in_array('created_at', $columns, true)) {
@@ -47,20 +32,29 @@ if (in_array('created_at', $columns, true)) {
 
 $requests = $pdo->query("SELECT * FROM access_requests ORDER BY {$orderBy}")->fetchAll();
 
-$doctorStatusByName = [];
+$patientsById = [];
+$patientEmailsById = [];
 try {
-    $doctorColumns = $pdo->query("SHOW COLUMNS FROM doctors")->fetchAll(PDO::FETCH_COLUMN, 0);
-    if (in_array('name', $doctorColumns, true) && in_array('status', $doctorColumns, true)) {
-        $doctorRows = $pdo->query("SELECT name, status FROM doctors")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($doctorRows as $doctorRow) {
-            $doctorNameKey = strtolower(trim((string) ($doctorRow['name'] ?? '')));
-            if ($doctorNameKey !== '') {
-                $doctorStatusByName[$doctorNameKey] = strtolower(trim((string) ($doctorRow['status'] ?? '')));
+    $patientColumns = $pdo->query("SHOW COLUMNS FROM patients")->fetchAll(PDO::FETCH_COLUMN, 0);
+    if (in_array('id', $patientColumns, true) && in_array('name', $patientColumns, true)) {
+        $selectColumns = in_array('email', $patientColumns, true) ? 'id, name, email' : 'id, name';
+        $patientRows = $pdo->query("SELECT {$selectColumns} FROM patients")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($patientRows as $patientRow) {
+            $patientId = (int) ($patientRow['id'] ?? 0);
+            $patientName = trim((string) ($patientRow['name'] ?? ''));
+            if ($patientId > 0 && $patientName !== '') {
+                $patientsById[$patientId] = $patientName;
+            }
+
+            $patientEmail = trim((string) ($patientRow['email'] ?? ''));
+            if ($patientId > 0 && $patientEmail !== '') {
+                $patientEmailsById[$patientId] = $patientEmail;
             }
         }
     }
 } catch (PDOException $e) {
-    $doctorStatusByName = [];
+    $patientsById = [];
+    $patientEmailsById = [];
 }
 ?>
 <!DOCTYPE html>
@@ -176,13 +170,9 @@ try {
     <div class="topbar">
         <div>
             <h4 class="mb-0">System Access Requests</h4>
-            <p class="text-muted mb-0">Review and process incoming access requests.</p>
+            <p class="text-muted mb-0">View incoming access requests and who received them.</p>
         </div>
     </div>
-    
-    <?php if (isset($_GET['msg'])): ?>
-        <div class="alert alert-success">Request updated successfully.</div>
-    <?php endif; ?>
 
     <div class="panel-card">
         <table class="table table-hover align-middle">
@@ -190,8 +180,10 @@ try {
                 <tr>
                     <th>Requester</th>
                     <th>Requested Role/Access</th>
+                    <th>Received By</th>
+                    <th>Email</th>
+                    <th>Doctor Received Details</th>
                     <th>Status</th>
-                    <th>Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -205,45 +197,82 @@ try {
                     }
                     $badge_class = $status_value === 'pending' ? 'warning'
                         : (($status_value === 'approved') ? 'success' : (($status_value === 'rejected' || $status_value === 'declined') ? 'danger' : 'secondary'));
-                    $is_pending = $status_value === 'pending';
 
-                    $doctorLookupName = strtolower(trim((string) ($r['doctor_name'] ?? $r['requester_name'] ?? '')));
-                    $doctorAccountStatus = $doctorLookupName !== '' ? ($doctorStatusByName[$doctorLookupName] ?? '') : '';
+                    $recipientName = trim((string) (
+                        $r['recipient_name']
+                        ?? $r['received_by']
+                        ?? $r['sent_to']
+                        ?? $r['patient_name']
+                        ?? ''
+                    ));
 
-                    if ($doctorAccountStatus === 'active') {
-                        $activity_label = 'Active';
-                    } elseif ($doctorAccountStatus === 'inactive') {
-                        $activity_label = 'Inactive';
-                    } else {
-                        $activity_label = $status_value === 'approved' ? 'Active'
-                            : (($status_value === 'rejected' || $status_value === 'declined') ? 'Inactive' : 'Unknown');
+                    if ($recipientName === '') {
+                        $recipientId = (int) ($r['recipient_id'] ?? $r['patient_id'] ?? 0);
+                        if ($recipientId > 0 && isset($patientsById[$recipientId])) {
+                            $recipientName = $patientsById[$recipientId];
+                        }
                     }
 
-                    $activity_class = $activity_label === 'Active' ? 'success'
-                        : ($activity_label === 'Inactive' ? 'secondary' : 'dark');
+                    if ($recipientName === '') {
+                        $recipientName = 'Unknown Recipient';
+                    }
+
+                    $recipientEmail = trim((string) (
+                        $r['recipient_email']
+                        ?? $r['received_email']
+                        ?? $r['email']
+                        ?? ''
+                    ));
+
+                    if ($recipientEmail === '') {
+                        $recipientId = (int) ($r['recipient_id'] ?? $r['patient_id'] ?? 0);
+                        if ($recipientId > 0 && isset($patientEmailsById[$recipientId])) {
+                            $recipientEmail = $patientEmailsById[$recipientId];
+                        }
+                    }
+
+                    if ($recipientEmail === '') {
+                        $recipientEmail = 'N/A';
+                    }
+
+                    $doctorReceivedLabel = 'Pending';
+                    $doctorReceivedClass = 'warning';
+
+                    $recordsSentValue = (int) ($r['records_sent'] ?? 0);
+                    $doctorReceiverName = trim((string) ($r['doctor_name'] ?? ''));
+                    $isApprovedRequest = in_array($status_value, ['approved'], true);
+
+                    if ($recordsSentValue === 1 && $doctorReceiverName !== '') {
+                        $doctorReceivedLabel = 'Dr. ' . $doctorReceiverName;
+                        $doctorReceivedClass = 'success';
+                    } elseif ($isApprovedRequest) {
+                        $doctorReceivedLabel = 'Pending';
+                        $doctorReceivedClass = 'warning';
+                    } elseif (in_array($status_value, ['rejected', 'declined'], true)) {
+                        $doctorReceivedLabel = 'Not Sent';
+                        $doctorReceivedClass = 'secondary';
+                    }
                 ?>
                 <tr>
                     <td><?= htmlspecialchars($requester_name) ?></td>
                     <td><?= htmlspecialchars($requested_access) ?></td>
+                    <td><?= htmlspecialchars($recipientName) ?></td>
+                    <td><?= htmlspecialchars($recipientEmail) ?></td>
+                    <td>
+                        <span class="badge bg-<?= $doctorReceivedClass ?>">
+                            <?= htmlspecialchars($doctorReceivedLabel) ?>
+                        </span>
+                    </td>
                     <td>
                         <span class="badge bg-<?= $badge_class ?>">
                             <?= ucfirst($status_value) ?>
                         </span>
                     </td>
-                    <td>
-                        <?php if ($is_pending && isset($r['id'])): ?>
-                            <a href="access_requests.php?action=approve&id=<?= (int) $r['id'] ?>" class="btn btn-sm btn-success">Approve</a>
-                            <a href="access_requests.php?action=reject&id=<?= (int) $r['id'] ?>" class="btn btn-sm btn-danger">Reject</a>
-                            <span class="badge bg-<?= $activity_class ?> ms-1"><?= $activity_label ?></span>
-                        <?php else: ?>
-                            <span class="badge bg-<?= $activity_class ?>"><?= $activity_label ?></span>
-                        <?php endif; ?>
-                    </td>
                 </tr>
                 <?php endforeach; ?>
                 <?php if (empty($requests)): ?>
                 <tr>
-                    <td colspan="4" class="text-center text-muted">No access requests found.</td>
+                    <td colspan="6" class="text-center text-muted">No access requests found.</td>
                 </tr>
                 <?php endif; ?>
             </tbody>
